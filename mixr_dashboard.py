@@ -3,12 +3,13 @@ import socket
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLabel
-from PyQt6.QtCore import QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import QThread, pyqtSignal
 
-# --- BACKGROUND NETWORK ENGINE ---
+# ==========================================
+# MODULE 1: BACKGROUND NETWORK THREAD
+# ==========================================
 class TelemetryReceiver(QThread):
-    # This signal safely bridges the background thread to the GUI thread
-    new_data_signal = pyqtSignal(int, int) 
+    new_data_signal = pyqtSignal(float, float) 
     status_signal = pyqtSignal(str, str)
 
     def __init__(self, ip="mixr1.local", port=5000):
@@ -23,83 +24,87 @@ class TelemetryReceiver(QThread):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(3.0)
                     s.connect((self.ip, self.port))
-                    self.status_signal.emit(f"Connected to {self.ip}", "green")
+                    self.status_signal.emit(f"Connected to {self.ip}", "#3fb950")
                     
                     s.settimeout(None)
                     buffer = ""
                     
                     while self.running:
                         chunk = s.recv(1024).decode('utf-8')
-                        if not chunk: break # Server dropped
+                        if not chunk: break 
                         
                         buffer += chunk
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             if line:
                                 try:
-                                    pulses, delta = map(int, line.split(","))
-                                    # Fire data into the UI thread securely
-                                    self.new_data_signal.emit(pulses, delta)
+                                    # Parse: "RPM,RawDelta"
+                                    rpm_str, delta_str = line.split(",")
+                                    self.new_data_signal.emit(float(rpm_str), float(delta_str))
                                 except ValueError:
                                     pass
             except Exception:
-                self.status_signal.emit("Searching for MIXR-1 Node...", "red")
+                self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
                 self.msleep(2000)
 
     def stop(self):
         self.running = False
         self.wait()
 
-# --- MAIN HARDWARE-ACCELERATED GUI ---
-class MixrDashboard(QMainWindow):
+# ==========================================
+# MODULE 2: UI RENDERING
+# ==========================================
+class PololuDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MIXR-1 Telemetry Plotter")
-        self.resize(800, 600)
+        self.setWindowTitle("MIXR-1 Pololu Hardware Validation")
+        self.resize(800, 700)
 
-        # UI Layout Setup
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
-        # Status & Readout Labels
         self.status_lbl = QLabel("Initializing Network...")
-        self.status_lbl.setStyleSheet("font-weight: bold; color: yellow;")
+        self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(self.status_lbl)
 
-        # Hardware-Accelerated Plot Canvas
-        pg.setConfigOptions(antialias=True)
-        self.plot_widget = pg.PlotWidget(title="Live Encoder Delta (Speed)")
-        self.plot_widget.setLabel('left', 'Delta Pulses', units='counts/100ms')
-        self.plot_widget.setLabel('bottom', 'Time (Samples)')
-        self.plot_widget.showGrid(x=True, y=True)
-        layout.addWidget(self.plot_widget)
+        pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
+        
+        # Plot 1: Calculated RPM
+        self.rpm_plot = pg.PlotWidget(title="Calculated Shaft Velocity")
+        self.rpm_plot.setLabel('left', 'Speed', units='RPM')
+        self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
+        layout.addWidget(self.rpm_plot)
 
-        # Data Arrays for Plotting (Hold the last 100 data points)
+        # Plot 2: Raw Encoder Delta
+        self.delta_plot = pg.PlotWidget(title="Raw Hardware Pulses")
+        self.delta_plot.setLabel('left', 'Pulses', units='per 100ms')
+        self.delta_plot.showGrid(x=True, y=True, alpha=0.3)
+        layout.addWidget(self.delta_plot)
+
         self.buffer_size = 100
         self.x_data = np.arange(self.buffer_size)
-        self.y_data = np.zeros(self.buffer_size)
+        self.rpm_data = np.zeros(self.buffer_size)
+        self.delta_data = np.zeros(self.buffer_size)
         
-        # Configure the dynamic line
-        self.data_line = self.plot_widget.plot(
-            self.x_data, 
-            self.y_data, 
-            pen=pg.mkPen(color=(0, 255, 255), width=2)
-        )
+        self.rpm_line = self.rpm_plot.plot(self.x_data, self.rpm_data, pen=pg.mkPen(color='#58a6ff', width=2))
+        self.delta_line = self.delta_plot.plot(self.x_data, self.delta_data, pen=pg.mkPen(color='#3fb950', width=2))
 
-        # Boot up the Network Thread
+        # Launch background networking
         self.network_thread = TelemetryReceiver()
-        self.network_thread.new_data_signal.connect(self.update_plot)
+        self.network_thread.new_data_signal.connect(self.update_plots)
         self.network_thread.status_signal.connect(self.update_status)
         self.network_thread.start()
 
-    def update_plot(self, pulses, delta):
-        # Shift data array left and append the new delta value to the end
-        self.y_data[:-1] = self.y_data[1:]
-        self.y_data[-1] = delta
-        
-        # Push to the OpenGL renderer instantly
-        self.data_line.setData(self.x_data, self.y_data)
+    def update_plots(self, rpm, raw_delta):
+        # Shift arrays and append newest data points
+        self.rpm_data[:-1] = self.rpm_data[1:]
+        self.rpm_data[-1] = rpm
+        self.rpm_line.setData(self.x_data, self.rpm_data)
+
+        self.delta_data[:-1] = self.delta_data[1:]
+        self.delta_data[-1] = raw_delta
+        self.delta_line.setData(self.x_data, self.delta_data)
 
     def update_status(self, msg, color):
         self.status_lbl.setText(f"Status: {msg}")
@@ -111,10 +116,6 @@ class MixrDashboard(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # Force a dark theme suited for laboratory environments
-    app.setStyle("Fusion")
-    
-    window = MixrDashboard()
+    window = PololuDashboard()
     window.show()
     sys.exit(app.exec())
