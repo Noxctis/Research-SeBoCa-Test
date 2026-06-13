@@ -5,7 +5,8 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
                              QWidget, QLabel, QComboBox, QTableWidget, QTableWidgetItem, 
-                             QHeaderView, QGroupBox, QFormLayout)
+                             QHeaderView, QGroupBox, QFormLayout, QPushButton, QStackedWidget,
+                             QFrame, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 # ==========================================
@@ -45,7 +46,6 @@ class TelemetryReceiver(QThread):
                                     rpm = float(rpm_str)
                                     torque = float(torque_str)
 
-                                    # Check for MATLAB Handover (Mode 3)
                                     if rpm == -1.0 and torque == -1.0:
                                         self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
                                         break 
@@ -67,37 +67,112 @@ class TelemetryReceiver(QThread):
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MIXR-1 Experimental Telemetry (Mode 2)")
+        self.setWindowTitle("MIXR-1 Experimental Telemetry")
         self.resize(1200, 800)
+        self.setStyleSheet("background-color: #0d1117; color: #c9d1d9;")
 
-        # Main Layout: Left Panel (Controls + Table) and Right Panel (Plots)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
 
-        # --- LEFT PANEL: REGION A & DATA LOG ---
+        # --- TOP NAVIGATION BAR ---
+        nav_layout = QHBoxLayout()
+        
+        title_container = QVBoxLayout()
+        app_title = QLabel("MIXR-1")
+        app_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffffff;")
+        app_subtitle = QLabel("Basic Mixing Equipment")
+        app_subtitle.setStyleSheet("font-size: 12px; color: #8b949e;")
+        title_container.addWidget(app_title)
+        title_container.addWidget(app_subtitle)
+        nav_layout.addLayout(title_container)
+        
+        nav_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+
+        # Navigation Buttons
+        btn_style = """
+            QPushButton {
+                background-color: #21262d; border: 1px solid #30363d; 
+                border-radius: 6px; padding: 8px 16px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #30363d; }
+            QPushButton:checked { background-color: #1f6feb; border: 1px solid #388bfd; }
+        """
+        
+        self.btn_mode2 = QPushButton("Mixing/Agitation")
+        self.btn_mode2.setCheckable(True)
+        self.btn_mode2.setChecked(True)
+        self.btn_mode2.setStyleSheet(btn_style)
+        
+        self.btn_mode3 = QPushButton("Process Control")
+        self.btn_mode3.setCheckable(True)
+        self.btn_mode3.setStyleSheet(btn_style)
+        
+        self.btn_settings = QPushButton("⚙ Settings")
+        self.btn_settings.setStyleSheet(btn_style)
+
+        nav_layout.addWidget(self.btn_mode2)
+        nav_layout.addWidget(self.btn_mode3)
+        nav_layout.addWidget(self.btn_settings)
+        
+        main_layout.addLayout(nav_layout)
+        
+        # Divider Line
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setStyleSheet("color: #30363d;")
+        main_layout.addWidget(divider)
+
+        # --- STACKED WIDGET (PAGE SYSTEM) ---
+        self.stacked_widget = QStackedWidget()
+        main_layout.addWidget(self.stacked_widget)
+
+        # Build the two pages
+        self.build_mode2_page()
+        self.build_mode3_page()
+
+        # Connect Navigation
+        self.btn_mode2.clicked.connect(lambda: self.switch_page(0))
+        self.btn_mode3.clicked.connect(lambda: self.switch_page(1))
+
+        # Launch Network Thread
+        self.network_thread = TelemetryReceiver()
+        self.network_thread.new_data_signal.connect(self.process_and_update)
+        self.network_thread.status_signal.connect(self.update_status)
+        self.network_thread.start()
+
+    def switch_page(self, index):
+        self.stacked_widget.setCurrentIndex(index)
+        self.btn_mode2.setChecked(index == 0)
+        self.btn_mode3.setChecked(index == 1)
+
+    def build_mode2_page(self):
+        page_widget = QWidget()
+        page_layout = QHBoxLayout(page_widget)
+
+        # LEFT PANEL
         left_panel = QVBoxLayout()
-        left_panel.setStretch(0, 0)
-        left_panel.setStretch(1, 1)
-
         self.status_lbl = QLabel("Initializing Network...")
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # Region A: Parameter Controls
         control_group = QGroupBox("Region A: Experiment Parameters")
+        control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         control_layout = QFormLayout()
         
         self.fluid_cb = QComboBox()
-        self.fluid_cb.addItem("Water (20°C)", userData=998.0) # Density in kg/m^3
-        
+        self.fluid_cb.addItem("Water (20°C)", userData=998.0)
         self.visc_cb = QComboBox()
-        self.visc_cb.addItem("Water (20°C)", userData=0.001002) # Viscosity in Pa*s
-        
+        self.visc_cb.addItem("Water (20°C)", userData=0.001002)
         self.impeller_cb = QComboBox()
         self.impeller_cb.addItem("Rushton Turbine (D = 0.067m)", userData=0.067)
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.addItem("Marine Propeller (D = 0.050m)", userData=0.050)
+
+        combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
+        self.fluid_cb.setStyleSheet(combo_style)
+        self.visc_cb.setStyleSheet(combo_style)
+        self.impeller_cb.setStyleSheet(combo_style)
 
         control_layout.addRow("Fluid Density (ρ):", self.fluid_cb)
         control_layout.addRow("Dynamic Viscosity (μ):", self.visc_cb)
@@ -105,104 +180,119 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # Region B: Live Data Table
         table_group = QGroupBox("Live Data Log")
+        table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         table_layout = QVBoxLayout()
         self.data_table = QTableWidget(0, 6)
         self.data_table.setHorizontalHeaderLabels(["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"])
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.data_table.setStyleSheet("QTableWidget { background-color: #0d1117; gridline-color: #30363d; border: none; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; }")
         table_layout.addWidget(self.data_table)
         table_group.setLayout(table_layout)
         left_panel.addWidget(table_group)
 
-        main_layout.addLayout(left_panel, stretch=1)
+        page_layout.addLayout(left_panel, stretch=1)
 
-        # --- RIGHT PANEL: HARDWARE ACCELERATED PLOTS ---
+        # RIGHT PANEL (PLOTS)
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
-        main_layout.addWidget(plot_layout, stretch=2)
+        page_layout.addWidget(plot_layout, stretch=2)
 
-        # Plot 1: RPM vs Time
         self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)
-        self.rpm_plot.setLabel('left', 'RPM')
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         self.rpm_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        # Plot 2: Power vs Time
         self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)
-        self.power_plot.setLabel('left', 'Power', units='W')
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
-        # Plot 3: Torque vs Time
         self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)
-        self.torque_plot.setLabel('left', 'Torque', units='N-m')
-        self.torque_plot.setLabel('bottom', 'Time', units='s')
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
-        # Plot 4: Power Number vs Reynolds Number (Scatter Plot)
         self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)
-        self.npo_plot.setLabel('left', 'N_Po')
-        self.npo_plot.setLabel('bottom', 'N_Re')
-        self.npo_plot.setLogMode(x=True, y=True) # Standard ChE practice is log-log for NRe vs NPo
+        self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
-        # Using a scatter representation (symbols without connecting lines) for phase plots
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
-        # Data Arrays
-        self.time_data = []
-        self.rpm_data = []
-        self.torque_data = []
-        self.power_data = []
-        self.nre_data = []
-        self.npo_data = []
+        self.time_data, self.rpm_data, self.torque_data, self.power_data, self.nre_data, self.npo_data = [], [], [], [], [], []
         self.sample_count = 0 
 
-        # Launch Network
-        self.network_thread = TelemetryReceiver()
-        self.network_thread.new_data_signal.connect(self.process_and_update)
-        self.network_thread.status_signal.connect(self.update_status)
-        self.network_thread.start()
+        self.stacked_widget.addWidget(page_widget)
+
+    def build_mode3_page(self):
+        page_widget = QWidget()
+        page_layout = QVBoxLayout(page_widget)
+        page_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Center Card corresponding to the wireframe
+        card = QFrame()
+        card.setStyleSheet("QFrame { background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; }")
+        card.setFixedSize(500, 300)
+        card_layout = QVBoxLayout(card)
+        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Green Check Circle
+        check_icon = QLabel("✔")
+        check_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        check_icon.setStyleSheet("background-color: #238636; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
+        check_icon.setFixedSize(50, 50)
+        
+        card_title = QLabel("MATLAB Connected")
+        card_title.setStyleSheet("font-size: 24px; font-weight: bold; border: none;")
+        card_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        card_desc = QLabel("Process controls and real-time monitoring are now\nmanaged directly in MATLAB/Simulink.")
+        card_desc.setStyleSheet("font-size: 14px; color: #8b949e; border: none;")
+        card_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        btn_disconnect = QPushButton("Disconnect")
+        btn_disconnect.setFixedSize(120, 36)
+        btn_disconnect.setStyleSheet("QPushButton { background-color: transparent; border: 1px solid #8b949e; border-radius: 6px; color: #c9d1d9; font-weight: bold; } QPushButton:hover { background-color: #30363d; }")
+
+        card_layout.addWidget(check_icon, alignment=Qt.AlignmentFlag.AlignHCenter)
+        card_layout.addSpacing(15)
+        card_layout.addWidget(card_title)
+        card_layout.addSpacing(10)
+        card_layout.addWidget(card_desc)
+        card_layout.addSpacing(25)
+        card_layout.addWidget(btn_disconnect, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        page_layout.addWidget(card)
+        self.stacked_widget.addWidget(page_widget)
 
     def process_and_update(self, rpm, torque):
+        # Only process math if Mode 2 is active to save CPU
+        if self.stacked_widget.currentIndex() != 0: return
+
         elapsed_seconds = self.sample_count * 0.1
         self.sample_count += 1
 
-        # 1. Retrieve Current GUI Parameters
         rho = self.fluid_cb.currentData()
         mu = self.visc_cb.currentData()
         D = self.impeller_cb.currentData()
 
-        # 2. Mathematical Calculations
         n_revs = rpm / 60.0
         power_w = torque * (n_revs * 2 * math.pi)
         
-        # Prevent division by zero if motor is stopped
         if n_revs > 0:
             n_re = (rho * n_revs * (D**2)) / mu
             n_po = power_w / (rho * (n_revs**3) * (D**5))
         else:
-            n_re = 0.0
-            n_po = 0.0
+            n_re, n_po = 0.0, 0.0
 
-        # 3. Store Data
         self.time_data.append(elapsed_seconds)
         self.rpm_data.append(rpm)
         self.torque_data.append(torque)
         self.power_data.append(power_w)
-        
-        # Log scales cannot plot 0, so we append small values when stopped
         self.nre_data.append(n_re if n_re > 0 else 1e-5)
         self.npo_data.append(n_po if n_po > 0 else 1e-5)
 
-        # 4. Update Hardware-Accelerated Plots
         self.rpm_line.setData(self.time_data, self.rpm_data)
         self.torque_line.setData(self.time_data, self.torque_data)
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        # 5. Update UI Table (Insert at row 0 so newest data is always at the top)
         self.data_table.insertRow(0)
         self.data_table.setItem(0, 0, QTableWidgetItem(f"{elapsed_seconds:.1f}"))
         self.data_table.setItem(0, 1, QTableWidgetItem(f"{rpm:.1f}"))
@@ -211,28 +301,26 @@ class ThesisDashboard(QMainWindow):
         self.data_table.setItem(0, 4, QTableWidgetItem(f"{n_re:.1f}"))
         self.data_table.setItem(0, 5, QTableWidgetItem(f"{n_po:.3f}"))
         
-        # Memory Management: Keep table size reasonable to prevent GUI lag after hours of running
-        if self.data_table.rowCount() > 500:
-            self.data_table.removeRow(500)
+        if self.data_table.rowCount() > 500: self.data_table.removeRow(500)
 
     def update_status(self, msg, color):
         self.status_lbl.setText(f"Status: {msg}")
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {color}; font-size: 14px; padding: 10px;")
 
-        # Auto-reset sequence upon reconnection
-        if "Mode 2 Active" in msg and self.sample_count > 0:
-            self.time_data.clear()
-            self.rpm_data.clear()
-            self.torque_data.clear()
-            self.power_data.clear()
-            self.nre_data.clear()
-            self.npo_data.clear()
-            self.sample_count = 0
-            self.data_table.setRowCount(0)
-            self.rpm_line.setData([], [])
-            self.torque_line.setData([], [])
-            self.power_line.setData([], [])
-            self.npo_scatter.setData([], [])
+        # Auto-Switch to Mode 3 when MATLAB connection is detected
+        if "MATLAB Mode 3 Active" in msg:
+            self.switch_page(1)
+
+        # Auto-Switch back to Mode 2 when connection resumes
+        if "Mode 2 Active" in msg:
+            self.switch_page(0)
+            if self.sample_count > 0:
+                self.time_data.clear(); self.rpm_data.clear(); self.torque_data.clear()
+                self.power_data.clear(); self.nre_data.clear(); self.npo_data.clear()
+                self.sample_count = 0
+                self.data_table.setRowCount(0)
+                self.rpm_line.setData([], []); self.torque_line.setData([], [])
+                self.power_line.setData([], []); self.npo_scatter.setData([], [])
 
     def closeEvent(self, event):
         self.network_thread.stop()
