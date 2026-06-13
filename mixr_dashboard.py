@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 # ==========================================
-# MODULE 1: BACKGROUND NETWORK THREAD
+# MODULE: NETWORK THREAD
 # ==========================================
 class TelemetryReceiver(QThread):
     new_data_signal = pyqtSignal(float, float) 
@@ -32,13 +32,13 @@ class TelemetryReceiver(QThread):
                     s.settimeout(3.0)
                     s.connect((self.ip, self.port))
                     self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
-                    
                     s.settimeout(None)
                     buffer = ""
                     
                     while self.running:
                         chunk = s.recv(1024).decode('utf-8')
-                        if not chunk: break 
+                        if not chunk: 
+                            break 
                         
                         buffer += chunk
                         while "\n" in buffer:
@@ -46,8 +46,7 @@ class TelemetryReceiver(QThread):
                             if line:
                                 try:
                                     rpm_str, torque_str = line.split(",")
-                                    rpm = float(rpm_str)
-                                    torque = float(torque_str)
+                                    rpm, torque = float(rpm_str), float(torque_str)
 
                                     if rpm == -1.0 and torque == -1.0:
                                         self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
@@ -65,11 +64,25 @@ class TelemetryReceiver(QThread):
         self.wait()
 
 # ==========================================
-# MODULE 2: THESIS UI RENDERING
+# MODULE: MAIN DASHBOARD
 # ==========================================
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.MAX_UI_ROWS = 500
+        
+        self.time_data = []
+        self.rpm_data = []
+        self.torque_data = []
+        self.power_data = []
+        self.nre_data = []
+        self.npo_data = []
+        self.sample_count = 0 
+        
+        self._setup_ui()
+        self._start_network()
+
+    def _setup_ui(self):
         self.setWindowTitle("MIXR-1 Experimental Telemetry")
         self.resize(1200, 800)
         self.setStyleSheet("background-color: #0d1117; color: #c9d1d9;")
@@ -78,9 +91,8 @@ class ThesisDashboard(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # --- TOP NAVIGATION BAR ---
+        # Top Navigation
         nav_layout = QHBoxLayout()
-        
         title_container = QVBoxLayout()
         app_title = QLabel("MIXR-1")
         app_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffffff;")
@@ -89,7 +101,6 @@ class ThesisDashboard(QMainWindow):
         title_container.addWidget(app_title)
         title_container.addWidget(app_subtitle)
         nav_layout.addLayout(title_container)
-        
         nav_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         btn_style = """
@@ -100,7 +111,6 @@ class ThesisDashboard(QMainWindow):
             QPushButton:hover { background-color: #30363d; }
             QPushButton:checked { background-color: #1f6feb; border: 1px solid #388bfd; }
         """
-        
         self.btn_mode2 = QPushButton("Mixing/Agitation")
         self.btn_mode2.setCheckable(True)
         self.btn_mode2.setChecked(True)
@@ -109,14 +119,9 @@ class ThesisDashboard(QMainWindow):
         self.btn_mode3 = QPushButton("Process Control")
         self.btn_mode3.setCheckable(True)
         self.btn_mode3.setStyleSheet(btn_style)
-        
-        self.btn_settings = QPushButton("⚙ Settings")
-        self.btn_settings.setStyleSheet(btn_style)
 
         nav_layout.addWidget(self.btn_mode2)
         nav_layout.addWidget(self.btn_mode3)
-        nav_layout.addWidget(self.btn_settings)
-        
         main_layout.addLayout(nav_layout)
         
         divider = QFrame()
@@ -124,27 +129,17 @@ class ThesisDashboard(QMainWindow):
         divider.setStyleSheet("color: #30363d;")
         main_layout.addWidget(divider)
 
-        # --- STACKED WIDGET ---
+        # Page Manager
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
-        self.build_mode2_page()
-        self.build_mode3_page()
+        self._build_mode2_page()
+        self._build_mode3_page()
 
         self.btn_mode2.clicked.connect(lambda: self.switch_page(0))
         self.btn_mode3.clicked.connect(lambda: self.switch_page(1))
 
-        self.network_thread = TelemetryReceiver()
-        self.network_thread.new_data_signal.connect(self.process_and_update)
-        self.network_thread.status_signal.connect(self.update_status)
-        self.network_thread.start()
-
-    def switch_page(self, index):
-        self.stacked_widget.setCurrentIndex(index)
-        self.btn_mode2.setChecked(index == 0)
-        self.btn_mode3.setChecked(index == 1)
-
-    def build_mode2_page(self):
+    def _build_mode2_page(self):
         page_widget = QWidget()
         page_layout = QHBoxLayout(page_widget)
 
@@ -153,28 +148,29 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # REGION A: PARAMETERS
+        # Parameters Block
         control_group = QGroupBox("Region A: Experiment Parameters")
-        control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
+        control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         control_layout = QFormLayout()
+        
+        combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
         
         self.fluid_cb = QComboBox()
         self.fluid_cb.addItem("Water (20°C)", userData=998.0)
+        self.fluid_cb.setStyleSheet(combo_style)
+        
         self.visc_cb = QComboBox()
         self.visc_cb.addItem("Water (20°C)", userData=0.001002)
+        self.visc_cb.setStyleSheet(combo_style)
+        
         self.impeller_cb = QComboBox()
         self.impeller_cb.addItem("Rushton Turbine (D = 0.067m)", userData=0.067)
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
-        self.impeller_cb.addItem("Marine Propeller (D = 0.050m)", userData=0.050)
-
-        combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
-        self.fluid_cb.setStyleSheet(combo_style)
-        self.visc_cb.setStyleSheet(combo_style)
         self.impeller_cb.setStyleSheet(combo_style)
 
-        control_layout.addRow("Fluid Density (ρ):", self.fluid_cb)
-        control_layout.addRow("Dynamic Viscosity (μ):", self.visc_cb)
-        control_layout.addRow("Impeller Diameter (D):", self.impeller_cb)
+        control_layout.addRow("Density (ρ):", self.fluid_cb)
+        control_layout.addRow("Viscosity (μ):", self.visc_cb)
+        control_layout.addRow("Diameter (D):", self.impeller_cb)
         
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
@@ -184,19 +180,16 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # REGION B: FIXED LAYOUT UI DATA TABLE
+        # Pre-allocated UI Table Block
         table_group = QGroupBox("Live Data Log")
-        table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
+        table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         table_layout = QVBoxLayout()
         
-        # Max rows fixed at 500. No rows are inserted or deleted during streaming.
-        self.MAX_UI_ROWS = 500
         self.data_table = QTableWidget(self.MAX_UI_ROWS, 6)
         self.data_table.setHorizontalHeaderLabels(["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"])
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.data_table.setStyleSheet("QTableWidget { background-color: #0d1117; gridline-color: #30363d; border: none; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; }")
         
-        # Pre-instantiate QTableWidgetItems to eliminate allocation cycles
         for row in range(self.MAX_UI_ROWS):
             for col in range(6):
                 self.data_table.setItem(row, col, QTableWidgetItem(""))
@@ -204,10 +197,9 @@ class ThesisDashboard(QMainWindow):
         table_layout.addWidget(self.data_table)
         table_group.setLayout(table_layout)
         left_panel.addWidget(table_group)
-
         page_layout.addLayout(left_panel, stretch=1)
 
-        # RIGHT PANEL: PLOTS
+        # Hardware-Accelerated Plot Block
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -229,13 +221,9 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
-        # Permanent data containers for complete export integrity
-        self.time_data, self.rpm_data, self.torque_data, self.power_data, self.nre_data, self.npo_data = [], [], [], [], [], []
-        self.sample_count = 0 
-
         self.stacked_widget.addWidget(page_widget)
 
-    def build_mode3_page(self):
+    def _build_mode3_page(self):
         page_widget = QWidget()
         page_layout = QVBoxLayout(page_widget)
         page_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -269,6 +257,17 @@ class ThesisDashboard(QMainWindow):
         page_layout.addWidget(card)
         self.stacked_widget.addWidget(page_widget)
 
+    def _start_network(self):
+        self.network_thread = TelemetryReceiver()
+        self.network_thread.new_data_signal.connect(self.process_and_update)
+        self.network_thread.status_signal.connect(self.update_status)
+        self.network_thread.start()
+
+    def switch_page(self, index):
+        self.stacked_widget.setCurrentIndex(index)
+        self.btn_mode2.setChecked(index == 0)
+        self.btn_mode3.setChecked(index == 1)
+
     def set_mode3_waiting(self):
         self.mode3_icon.setText("⏳")
         self.mode3_icon.setStyleSheet("background-color: #d29922; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
@@ -293,14 +292,9 @@ class ThesisDashboard(QMainWindow):
 
         n_revs = rpm / 60.0
         power_w = torque * (n_revs * 2 * math.pi)
-        
-        if n_revs > 0:
-            n_re = (rho * n_revs * (D**2)) / mu
-            n_po = power_w / (rho * (n_revs**3) * (D**5))
-        else:
-            n_re, n_po = 0.0, 0.0
+        n_re = (rho * n_revs * (D**2)) / mu if n_revs > 0 else 0.0
+        n_po = power_w / (rho * (n_revs**3) * (D**5)) if n_revs > 0 else 0.0
 
-        # Append telemetry to permanent memory stores
         self.time_data.append(elapsed_seconds)
         self.rpm_data.append(rpm)
         self.torque_data.append(torque)
@@ -313,18 +307,14 @@ class ThesisDashboard(QMainWindow):
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        # CIRCULAR BUFFER TABLE RE-WRITING LOGIC
-        if len(self.time_data) <= self.MAX_UI_ROWS:
-            # Linear fill until the table is populated
-            target_row = len(self.time_data) - 1
+        if self.sample_count <= self.MAX_UI_ROWS:
+            target_row = self.sample_count - 1
         else:
-            # Shift text values upward to create a clean, non-destructive rolling view
             for r in range(self.MAX_UI_ROWS - 1):
                 for c in range(6):
                     self.data_table.item(r, c).setText(self.data_table.item(r + 1, c).text())
             target_row = self.MAX_UI_ROWS - 1
 
-        # Populate the active target row cells safely without reallocating widgets
         self.data_table.item(target_row, 0).setText(f"{elapsed_seconds:.1f}")
         self.data_table.item(target_row, 1).setText(f"{rpm:.1f}")
         self.data_table.item(target_row, 2).setText(f"{torque:.3f}")
@@ -332,33 +322,28 @@ class ThesisDashboard(QMainWindow):
         self.data_table.item(target_row, 4).setText(f"{n_re:.1f}")
         self.data_table.item(target_row, 5).setText(f"{n_po:.3f}")
         
-        #self.data_table.scrollToBottom()
+        self.data_table.scrollToBottom()
 
     def export_data(self):
-        if not self.time_data:
-            return
+        if not self.time_data: return
 
         timestamp = int(time.time())
-        csv_filename = f"mixr1_log_{timestamp}.csv"
-        mat_filename = f"mixr1_log_{timestamp}.mat"
+        csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
 
-        with open(csv_filename, 'w', newline='') as f:
+        with open(csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Time (s)", "RPM", "Torque (N-m)", "Power (W)", "N_Re", "N_Po"])
             for i in range(len(self.time_data)):
                 writer.writerow([self.time_data[i], self.rpm_data[i], self.torque_data[i], 
                                  self.power_data[i], self.nre_data[i], self.npo_data[i]])
 
-        mat_dict = {
-            "time_s": np.array(self.time_data),
-            "RPM": np.array(self.rpm_data),
-            "Torque_Nm": np.array(self.torque_data),
-            "Power_W": np.array(self.power_data),
-            "N_Re": np.array(self.nre_data),
-            "N_Po": np.array(self.npo_data)
-        }
-        sio.savemat(mat_filename, mat_dict)
-        QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n\n{csv_filename}\n{mat_filename}")
+        sio.savemat(mat_file, {
+            "time_s": np.array(self.time_data), "RPM": np.array(self.rpm_data),
+            "Torque_Nm": np.array(self.torque_data), "Power_W": np.array(self.power_data),
+            "N_Re": np.array(self.nre_data), "N_Po": np.array(self.npo_data)
+        })
+        
+        QMessageBox.information(self, "Export Complete", f"Data saved to:\n{csv_file}\n{mat_file}")
 
     def update_status(self, msg, color):
         self.status_lbl.setText(f"Status: {msg}")
@@ -376,7 +361,6 @@ class ThesisDashboard(QMainWindow):
                 self.power_data.clear(); self.nre_data.clear(); self.npo_data.clear()
                 self.sample_count = 0
                 
-                # Reset cells instead of clearing structural components
                 for r in range(self.MAX_UI_ROWS):
                     for c in range(6):
                         self.data_table.item(r, c).setText("")
