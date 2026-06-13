@@ -176,7 +176,6 @@ class ThesisDashboard(QMainWindow):
         control_layout.addRow("Dynamic Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Impeller Diameter (D):", self.impeller_cb)
         
-        # EXPORT BUTTON
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
         self.btn_export.clicked.connect(self.export_data)
@@ -185,14 +184,23 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # REGION B: DATA TABLE
+        # REGION B: FIXED LAYOUT UI DATA TABLE
         table_group = QGroupBox("Live Data Log")
         table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         table_layout = QVBoxLayout()
-        self.data_table = QTableWidget(0, 6)
+        
+        # Max rows fixed at 500. No rows are inserted or deleted during streaming.
+        self.MAX_UI_ROWS = 500
+        self.data_table = QTableWidget(self.MAX_UI_ROWS, 6)
         self.data_table.setHorizontalHeaderLabels(["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"])
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.data_table.setStyleSheet("QTableWidget { background-color: #0d1117; gridline-color: #30363d; border: none; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; }")
+        
+        # Pre-instantiate QTableWidgetItems to eliminate allocation cycles
+        for row in range(self.MAX_UI_ROWS):
+            for col in range(6):
+                self.data_table.setItem(row, col, QTableWidgetItem(""))
+                
         table_layout.addWidget(self.data_table)
         table_group.setLayout(table_layout)
         left_panel.addWidget(table_group)
@@ -221,6 +229,7 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
+        # Permanent data containers for complete export integrity
         self.time_data, self.rpm_data, self.torque_data, self.power_data, self.nre_data, self.npo_data = [], [], [], [], [], []
         self.sample_count = 0 
 
@@ -237,7 +246,6 @@ class ThesisDashboard(QMainWindow):
         card_layout = QVBoxLayout(card)
         card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Dynamic UI Elements
         self.mode3_icon = QLabel("⏳")
         self.mode3_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.mode3_icon.setStyleSheet("background-color: #d29922; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
@@ -292,6 +300,7 @@ class ThesisDashboard(QMainWindow):
         else:
             n_re, n_po = 0.0, 0.0
 
+        # Append telemetry to permanent memory stores
         self.time_data.append(elapsed_seconds)
         self.rpm_data.append(rpm)
         self.torque_data.append(torque)
@@ -304,19 +313,26 @@ class ThesisDashboard(QMainWindow):
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        row_pos = self.data_table.rowCount()
-        self.data_table.insertRow(row_pos)
-        self.data_table.setItem(row_pos, 0, QTableWidgetItem(f"{elapsed_seconds:.1f}"))
-        self.data_table.setItem(row_pos, 1, QTableWidgetItem(f"{rpm:.1f}"))
-        self.data_table.setItem(row_pos, 2, QTableWidgetItem(f"{torque:.3f}"))
-        self.data_table.setItem(row_pos, 3, QTableWidgetItem(f"{power_w:.3f}"))
-        self.data_table.setItem(row_pos, 4, QTableWidgetItem(f"{n_re:.1f}"))
-        self.data_table.setItem(row_pos, 5, QTableWidgetItem(f"{n_po:.3f}"))
-        
-        self.data_table.scrollToBottom()
+        # CIRCULAR BUFFER TABLE RE-WRITING LOGIC
+        if len(self.time_data) <= self.MAX_UI_ROWS:
+            # Linear fill until the table is populated
+            target_row = len(self.time_data) - 1
+        else:
+            # Shift text values upward to create a clean, non-destructive rolling view
+            for r in range(self.MAX_UI_ROWS - 1):
+                for c in range(6):
+                    self.data_table.item(r, c).setText(self.data_table.item(r + 1, c).text())
+            target_row = self.MAX_UI_ROWS - 1
 
-        if self.data_table.rowCount() > 500: 
-            self.data_table.removeRow(0)
+        # Populate the active target row cells safely without reallocating widgets
+        self.data_table.item(target_row, 0).setText(f"{elapsed_seconds:.1f}")
+        self.data_table.item(target_row, 1).setText(f"{rpm:.1f}")
+        self.data_table.item(target_row, 2).setText(f"{torque:.3f}")
+        self.data_table.item(target_row, 3).setText(f"{power_w:.3f}")
+        self.data_table.item(target_row, 4).setText(f"{n_re:.1f}")
+        self.data_table.item(target_row, 5).setText(f"{n_po:.3f}")
+        
+        #self.data_table.scrollToBottom()
 
     def export_data(self):
         if not self.time_data:
@@ -359,7 +375,12 @@ class ThesisDashboard(QMainWindow):
                 self.time_data.clear(); self.rpm_data.clear(); self.torque_data.clear()
                 self.power_data.clear(); self.nre_data.clear(); self.npo_data.clear()
                 self.sample_count = 0
-                self.data_table.setRowCount(0)
+                
+                # Reset cells instead of clearing structural components
+                for r in range(self.MAX_UI_ROWS):
+                    for c in range(6):
+                        self.data_table.item(r, c).setText("")
+                        
                 self.rpm_line.setData([], []); self.torque_line.setData([], [])
                 self.power_line.setData([], []); self.npo_scatter.setData([], [])
 
