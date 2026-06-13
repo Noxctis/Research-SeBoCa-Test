@@ -293,13 +293,15 @@ class ThesisDashboard(QMainWindow):
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        self.data_table.insertRow(0)
+        next_row = self.data_table.rowCount()
+        self.data_table.insertRow(next_row)
+        
         self.data_table.setItem(0, 0, QTableWidgetItem(f"{elapsed_seconds:.1f}"))
         self.data_table.setItem(0, 1, QTableWidgetItem(f"{rpm:.1f}"))
         self.data_table.setItem(0, 2, QTableWidgetItem(f"{torque:.3f}"))
         self.data_table.setItem(0, 3, QTableWidgetItem(f"{power_w:.3f}"))
         self.data_table.setItem(0, 4, QTableWidgetItem(f"{n_re:.1f}"))
-        self.data_table.setItem(0, 5, QTableWidgetItem(f"{n_po:.3f}"))
+        self.data_table.setItem(0, 5, QTableWidgetItem(f"{n_po:.3f}"))       
         
         if self.data_table.rowCount() > 500: self.data_table.removeRow(500)
 
