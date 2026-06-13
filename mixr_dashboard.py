@@ -57,7 +57,7 @@ class TelemetryReceiver(QThread):
                                 except ValueError:
                                     pass
             except Exception:
-                self.status_signal.emit("Searching for MIXR-1 Node (Waiting for Mode 2)...", "#f85149")
+                self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
                 self.msleep(2000) 
 
     def stop(self):
@@ -124,7 +124,7 @@ class ThesisDashboard(QMainWindow):
         divider.setStyleSheet("color: #30363d;")
         main_layout.addWidget(divider)
 
-        # --- STACKED WIDGET (PAGE SYSTEM) ---
+        # --- STACKED WIDGET ---
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
@@ -176,7 +176,7 @@ class ThesisDashboard(QMainWindow):
         control_layout.addRow("Dynamic Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Impeller Diameter (D):", self.impeller_cb)
         
-        # EXPORT DATA BUTTON
+        # EXPORT BUTTON
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
         self.btn_export.clicked.connect(self.export_data)
@@ -185,7 +185,7 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # REGION B: LIVE DATA LOG
+        # REGION B: DATA TABLE
         table_group = QGroupBox("Live Data Log")
         table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         table_layout = QVBoxLayout()
@@ -199,7 +199,7 @@ class ThesisDashboard(QMainWindow):
 
         page_layout.addLayout(left_panel, stretch=1)
 
-        # RIGHT PANEL (PLOTS)
+        # RIGHT PANEL: PLOTS
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -221,7 +221,6 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
-        # Permanent data arrays for Export capability
         self.time_data, self.rpm_data, self.torque_data, self.power_data, self.nre_data, self.npo_data = [], [], [], [], [], []
         self.sample_count = 0 
 
@@ -234,37 +233,45 @@ class ThesisDashboard(QMainWindow):
 
         card = QFrame()
         card.setStyleSheet("QFrame { background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; }")
-        card.setFixedSize(500, 300)
+        card.setFixedSize(550, 300)
         card_layout = QVBoxLayout(card)
         card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        check_icon = QLabel("✔")
-        check_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        check_icon.setStyleSheet("background-color: #238636; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
-        check_icon.setFixedSize(50, 50)
+        # Dynamic UI Elements
+        self.mode3_icon = QLabel("⏳")
+        self.mode3_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mode3_icon.setStyleSheet("background-color: #d29922; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
+        self.mode3_icon.setFixedSize(50, 50)
         
-        card_title = QLabel("MATLAB Connected")
-        card_title.setStyleSheet("font-size: 24px; font-weight: bold; border: none;")
-        card_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mode3_title = QLabel("Waiting for MATLAB")
+        self.mode3_title.setStyleSheet("font-size: 24px; font-weight: bold; border: none;")
+        self.mode3_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        card_desc = QLabel("Process controls and real-time monitoring are now\nmanaged directly in MATLAB/Simulink.")
-        card_desc.setStyleSheet("font-size: 14px; color: #8b949e; border: none;")
-        card_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mode3_desc = QLabel("Please deploy the Simulink model from the host PC.\nHardware control will automatically transfer upon detection.")
+        self.mode3_desc.setStyleSheet("font-size: 14px; color: #8b949e; border: none;")
+        self.mode3_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        btn_disconnect = QPushButton("Disconnect")
-        btn_disconnect.setFixedSize(120, 36)
-        btn_disconnect.setStyleSheet("QPushButton { background-color: transparent; border: 1px solid #8b949e; border-radius: 6px; color: #c9d1d9; font-weight: bold; } QPushButton:hover { background-color: #30363d; }")
-
-        card_layout.addWidget(check_icon, alignment=Qt.AlignmentFlag.AlignHCenter)
+        card_layout.addWidget(self.mode3_icon, alignment=Qt.AlignmentFlag.AlignHCenter)
         card_layout.addSpacing(15)
-        card_layout.addWidget(card_title)
+        card_layout.addWidget(self.mode3_title)
         card_layout.addSpacing(10)
-        card_layout.addWidget(card_desc)
+        card_layout.addWidget(self.mode3_desc)
         card_layout.addSpacing(25)
-        card_layout.addWidget(btn_disconnect, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         page_layout.addWidget(card)
         self.stacked_widget.addWidget(page_widget)
+
+    def set_mode3_waiting(self):
+        self.mode3_icon.setText("⏳")
+        self.mode3_icon.setStyleSheet("background-color: #d29922; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
+        self.mode3_title.setText("Waiting for MATLAB")
+        self.mode3_desc.setText("Please deploy the Simulink model from the host PC.\nHardware control will automatically transfer upon detection.")
+
+    def set_mode3_active(self):
+        self.mode3_icon.setText("✔")
+        self.mode3_icon.setStyleSheet("background-color: #238636; color: white; border-radius: 25px; font-size: 24px; font-weight: bold; border: none;")
+        self.mode3_title.setText("MATLAB Connected")
+        self.mode3_desc.setText("System locked. All process controls and hardware interfaces\nare currently managed directly in MATLAB/Simulink.")
 
     def process_and_update(self, rpm, torque):
         if self.stacked_widget.currentIndex() != 0: return
@@ -285,7 +292,6 @@ class ThesisDashboard(QMainWindow):
         else:
             n_re, n_po = 0.0, 0.0
 
-        # Memory storage for permanent logging/exporting
         self.time_data.append(elapsed_seconds)
         self.rpm_data.append(rpm)
         self.torque_data.append(torque)
@@ -298,7 +304,6 @@ class ThesisDashboard(QMainWindow):
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        # TABLE UI APPEND LOGIC
         row_pos = self.data_table.rowCount()
         self.data_table.insertRow(row_pos)
         self.data_table.setItem(row_pos, 0, QTableWidgetItem(f"{elapsed_seconds:.1f}"))
@@ -308,10 +313,8 @@ class ThesisDashboard(QMainWindow):
         self.data_table.setItem(row_pos, 4, QTableWidgetItem(f"{n_re:.1f}"))
         self.data_table.setItem(row_pos, 5, QTableWidgetItem(f"{n_po:.3f}"))
         
-        # Auto-scroll to the newest data at the bottom
         self.data_table.scrollToBottom()
 
-        # Enforce 500 row UI limit by removing index 0 (oldest)
         if self.data_table.rowCount() > 500: 
             self.data_table.removeRow(0)
 
@@ -323,7 +326,6 @@ class ThesisDashboard(QMainWindow):
         csv_filename = f"mixr1_log_{timestamp}.csv"
         mat_filename = f"mixr1_log_{timestamp}.mat"
 
-        # CSV Export [cite: 624]
         with open(csv_filename, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Time (s)", "RPM", "Torque (N-m)", "Power (W)", "N_Re", "N_Po"])
@@ -331,7 +333,6 @@ class ThesisDashboard(QMainWindow):
                 writer.writerow([self.time_data[i], self.rpm_data[i], self.torque_data[i], 
                                  self.power_data[i], self.nre_data[i], self.npo_data[i]])
 
-        # MAT Export [cite: 624]
         mat_dict = {
             "time_s": np.array(self.time_data),
             "RPM": np.array(self.rpm_data),
@@ -341,7 +342,6 @@ class ThesisDashboard(QMainWindow):
             "N_Po": np.array(self.npo_data)
         }
         sio.savemat(mat_filename, mat_dict)
-
         QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n\n{csv_filename}\n{mat_filename}")
 
     def update_status(self, msg, color):
@@ -349,9 +349,11 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {color}; font-size: 14px; padding: 10px;")
 
         if "MATLAB Mode 3 Active" in msg:
+            self.set_mode3_active()
             self.switch_page(1)
 
         if "Mode 2 Active" in msg:
+            self.set_mode3_waiting()
             self.switch_page(0)
             if self.sample_count > 0:
                 self.time_data.clear(); self.rpm_data.clear(); self.torque_data.clear()
