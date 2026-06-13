@@ -38,9 +38,9 @@ class TelemetryReceiver(QThread):
                             line, buffer = buffer.split("\n", 1)
                             if line:
                                 try:
-                                    # Parse: "RPM,RawDelta"
-                                    rpm_str, delta_str = line.split(",")
-                                    self.new_data_signal.emit(float(rpm_str), float(delta_str))
+                                    # Expected Payload: "RPM,Torque"
+                                    rpm_str, torque_str = line.split(",")
+                                    self.new_data_signal.emit(float(rpm_str), float(torque_str))
                                 except ValueError:
                                     pass
             except Exception:
@@ -52,12 +52,12 @@ class TelemetryReceiver(QThread):
         self.wait()
 
 # ==========================================
-# MODULE 2: UI RENDERING
+# MODULE 2: THESIS UI RENDERING
 # ==========================================
-class PololuDashboard(QMainWindow):
+class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MIXR-1 Pololu Hardware Validation")
+        self.setWindowTitle("MIXR-1 Real-Time Telemetry")
         self.resize(800, 700)
 
         central_widget = QWidget()
@@ -70,25 +70,28 @@ class PololuDashboard(QMainWindow):
 
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         
-        # Plot 1: Calculated RPM
-        self.rpm_plot = pg.PlotWidget(title="Calculated Shaft Velocity")
-        self.rpm_plot.setLabel('left', 'Speed', units='RPM')
+        # Plot 1: RPM vs Time
+        self.rpm_plot = pg.PlotWidget(title="Time vs. Motor Velocity")
+        self.rpm_plot.setLabel('left', 'Velocity', units='RPM')
+        self.rpm_plot.setLabel('bottom', 'Time', units='100ms intervals')
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         layout.addWidget(self.rpm_plot)
 
-        # Plot 2: Raw Encoder Delta
-        self.delta_plot = pg.PlotWidget(title="Raw Hardware Pulses")
-        self.delta_plot.setLabel('left', 'Pulses', units='per 100ms')
-        self.delta_plot.showGrid(x=True, y=True, alpha=0.3)
-        layout.addWidget(self.delta_plot)
+        # Plot 2: Torque vs Time
+        self.torque_plot = pg.PlotWidget(title="Time vs. Inline Torque")
+        self.torque_plot.setLabel('left', 'Torque', units='N-m')
+        self.torque_plot.setLabel('bottom', 'Time', units='100ms intervals')
+        self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
+        layout.addWidget(self.torque_plot)
 
+        # Buffer limits how much time is displayed on the X-axis (100 samples * 100ms = 10 seconds of rolling time)
         self.buffer_size = 100
         self.x_data = np.arange(self.buffer_size)
         self.rpm_data = np.zeros(self.buffer_size)
-        self.delta_data = np.zeros(self.buffer_size)
+        self.torque_data = np.zeros(self.buffer_size)
         
         self.rpm_line = self.rpm_plot.plot(self.x_data, self.rpm_data, pen=pg.mkPen(color='#58a6ff', width=2))
-        self.delta_line = self.delta_plot.plot(self.x_data, self.delta_data, pen=pg.mkPen(color='#3fb950', width=2))
+        self.torque_line = self.torque_plot.plot(self.x_data, self.torque_data, pen=pg.mkPen(color='#ff7b72', width=2))
 
         # Launch background networking
         self.network_thread = TelemetryReceiver()
@@ -96,15 +99,15 @@ class PololuDashboard(QMainWindow):
         self.network_thread.status_signal.connect(self.update_status)
         self.network_thread.start()
 
-    def update_plots(self, rpm, raw_delta):
-        # Shift arrays and append newest data points
+    def update_plots(self, rpm, torque):
+        # Shift arrays and append newest data points representing the current time instance
         self.rpm_data[:-1] = self.rpm_data[1:]
         self.rpm_data[-1] = rpm
         self.rpm_line.setData(self.x_data, self.rpm_data)
 
-        self.delta_data[:-1] = self.delta_data[1:]
-        self.delta_data[-1] = raw_delta
-        self.delta_line.setData(self.x_data, self.delta_data)
+        self.torque_data[:-1] = self.torque_data[1:]
+        self.torque_data[-1] = torque
+        self.torque_line.setData(self.x_data, self.torque_data)
 
     def update_status(self, msg, color):
         self.status_lbl.setText(f"Status: {msg}")
@@ -116,6 +119,6 @@ class PololuDashboard(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = PololuDashboard()
+    window = ThesisDashboard()
     window.show()
     sys.exit(app.exec())
