@@ -322,7 +322,7 @@ class ThesisDashboard(QMainWindow):
         self.data_table.item(target_row, 4).setText(f"{n_re:.1f}")
         self.data_table.item(target_row, 5).setText(f"{n_po:.3f}")
         
-        self.data_table.scrollToBottom()
+        #self.data_table.scrollToBottom()
 
     def export_data(self):
         if not self.time_data: return
