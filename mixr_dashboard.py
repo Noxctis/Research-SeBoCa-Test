@@ -3,17 +3,18 @@ import socket
 import math
 import time
 import csv
+import collections
 import numpy as np
 import scipy.io as sio
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
-                             QWidget, QLabel, QComboBox, QTableWidget, QTableWidgetItem, 
+                             QWidget, QLabel, QComboBox, QTableView, 
                              QHeaderView, QGroupBox, QFormLayout, QPushButton, QStackedWidget,
                              QFrame, QSpacerItem, QSizePolicy, QMessageBox)
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
 
 # ==========================================
-# MODULE: NETWORK THREAD
+# MODULE 1: NETWORK THREAD
 # ==========================================
 class TelemetryReceiver(QThread):
     new_data_signal = pyqtSignal(float, float) 
@@ -37,8 +38,7 @@ class TelemetryReceiver(QThread):
                     
                     while self.running:
                         chunk = s.recv(1024).decode('utf-8')
-                        if not chunk: 
-                            break 
+                        if not chunk: break 
                         
                         buffer += chunk
                         while "\n" in buffer:
@@ -64,13 +64,63 @@ class TelemetryReceiver(QThread):
         self.wait()
 
 # ==========================================
-# MODULE: MAIN DASHBOARD
+# MODULE 2: HIGH-PERFORMANCE TABLE MODEL
+# ==========================================
+class TelemetryTableModel(QAbstractTableModel):
+    def __init__(self, max_rows=500):
+        super().__init__()
+        self.max_rows = max_rows
+        self.headers = ["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
+        # Deque ensures O(1) performance. It automatically drops the oldest item at index 0 when full.
+        self.dataset = collections.deque(maxlen=max_rows)
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self.dataset)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self.headers)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
+            val = self.dataset[index.row()][index.column()]
+            if index.column() in (0, 1, 4): return f"{val:.1f}"
+            if index.column() in (2, 3, 5): return f"{val:.3f}"
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return Qt.AlignmentFlag.AlignCenter
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            return self.headers[section]
+        return None
+
+    def add_row(self, row_data):
+        if len(self.dataset) < self.max_rows:
+            self.beginInsertRows(QModelIndex(), len(self.dataset), len(self.dataset))
+            self.dataset.append(row_data)
+            self.endInsertRows()
+        else:
+            self.dataset.append(row_data)
+            # Notify the UI that the background buffer shifted, triggering an instant native repaint
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.max_rows - 1, len(self.headers) - 1)
+            self.dataChanged.emit(top_left, bottom_right)
+
+    def clear_data(self):
+        self.beginResetModel()
+        self.dataset.clear()
+        self.endResetModel()
+
+# ==========================================
+# MODULE 3: THESIS UI RENDERING
 # ==========================================
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.MAX_UI_ROWS = 500
         
+        # Permanent arrays for exporting
         self.time_data = []
         self.rpm_data = []
         self.torque_data = []
@@ -104,10 +154,7 @@ class ThesisDashboard(QMainWindow):
         nav_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         btn_style = """
-            QPushButton {
-                background-color: #21262d; border: 1px solid #30363d; 
-                border-radius: 6px; padding: 8px 16px; font-weight: bold;
-            }
+            QPushButton { background-color: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 8px 16px; font-weight: bold; }
             QPushButton:hover { background-color: #30363d; }
             QPushButton:checked { background-color: #1f6feb; border: 1px solid #388bfd; }
         """
@@ -148,7 +195,7 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # Parameters Block
+        # Region A: Parameters
         control_group = QGroupBox("Region A: Experiment Parameters")
         control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         control_layout = QFormLayout()
@@ -180,26 +227,23 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # Pre-allocated UI Table Block
+        # Region B: Native QTableView connected to the TelemetryTableModel
         table_group = QGroupBox("Live Data Log")
         table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         table_layout = QVBoxLayout()
         
-        self.data_table = QTableWidget(self.MAX_UI_ROWS, 6)
-        self.data_table.setHorizontalHeaderLabels(["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"])
+        self.table_model = TelemetryTableModel(max_rows=500)
+        self.data_table = QTableView()
+        self.data_table.setModel(self.table_model)
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.data_table.setStyleSheet("QTableWidget { background-color: #0d1117; gridline-color: #30363d; border: none; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; }")
+        self.data_table.setStyleSheet("QTableView { background-color: #0d1117; gridline-color: #30363d; border: none; color: #c9d1d9; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; color: #c9d1d9; }")
         
-        for row in range(self.MAX_UI_ROWS):
-            for col in range(6):
-                self.data_table.setItem(row, col, QTableWidgetItem(""))
-                
         table_layout.addWidget(self.data_table)
         table_group.setLayout(table_layout)
         left_panel.addWidget(table_group)
         page_layout.addLayout(left_panel, stretch=1)
 
-        # Hardware-Accelerated Plot Block
+        # Right Panel: Plots
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -295,6 +339,7 @@ class ThesisDashboard(QMainWindow):
         n_re = (rho * n_revs * (D**2)) / mu if n_revs > 0 else 0.0
         n_po = power_w / (rho * (n_revs**3) * (D**5)) if n_revs > 0 else 0.0
 
+        # Permanent background storage (Export Data)
         self.time_data.append(elapsed_seconds)
         self.rpm_data.append(rpm)
         self.torque_data.append(torque)
@@ -302,27 +347,15 @@ class ThesisDashboard(QMainWindow):
         self.nre_data.append(n_re if n_re > 0 else 1e-5)
         self.npo_data.append(n_po if n_po > 0 else 1e-5)
 
+        # Plot Updates
         self.rpm_line.setData(self.time_data, self.rpm_data)
         self.torque_line.setData(self.time_data, self.torque_data)
         self.power_line.setData(self.time_data, self.power_data)
         self.npo_scatter.setData(self.nre_data, self.npo_data)
 
-        if self.sample_count <= self.MAX_UI_ROWS:
-            target_row = self.sample_count - 1
-        else:
-            for r in range(self.MAX_UI_ROWS - 1):
-                for c in range(6):
-                    self.data_table.item(r, c).setText(self.data_table.item(r + 1, c).text())
-            target_row = self.MAX_UI_ROWS - 1
-
-        self.data_table.item(target_row, 0).setText(f"{elapsed_seconds:.1f}")
-        self.data_table.item(target_row, 1).setText(f"{rpm:.1f}")
-        self.data_table.item(target_row, 2).setText(f"{torque:.3f}")
-        self.data_table.item(target_row, 3).setText(f"{power_w:.3f}")
-        self.data_table.item(target_row, 4).setText(f"{n_re:.1f}")
-        self.data_table.item(target_row, 5).setText(f"{n_po:.3f}")
-        
-        #self.data_table.scrollToBottom()
+        # UI Table Update (Native O(1) buffer append)
+        self.table_model.add_row((elapsed_seconds, rpm, torque, power_w, n_re, n_po))
+        self.data_table.scrollToBottom()
 
     def export_data(self):
         if not self.time_data: return
@@ -361,9 +394,8 @@ class ThesisDashboard(QMainWindow):
                 self.power_data.clear(); self.nre_data.clear(); self.npo_data.clear()
                 self.sample_count = 0
                 
-                for r in range(self.MAX_UI_ROWS):
-                    for c in range(6):
-                        self.data_table.item(r, c).setText("")
+                # Instantly drop table layout
+                self.table_model.clear_data()
                         
                 self.rpm_line.setData([], []); self.torque_line.setData([], [])
                 self.power_line.setData([], []); self.npo_scatter.setData([], [])
