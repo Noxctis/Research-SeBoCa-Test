@@ -24,7 +24,7 @@ class TelemetryReceiver(QThread):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(3.0)
                     s.connect((self.ip, self.port))
-                    self.status_signal.emit(f"Connected to {self.ip}", "#3fb950")
+                    self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
                     
                     s.settimeout(None)
                     buffer = ""
@@ -38,14 +38,22 @@ class TelemetryReceiver(QThread):
                             line, buffer = buffer.split("\n", 1)
                             if line:
                                 try:
-                                    # Expected Payload: "RPM,Torque"
                                     rpm_str, torque_str = line.split(",")
-                                    self.new_data_signal.emit(float(rpm_str), float(torque_str))
+                                    rpm = float(rpm_str)
+                                    torque = float(torque_str)
+
+                                    # Check for MATLAB Handover (Mode 3)
+                                    if rpm == -1.0 and torque == -1.0:
+                                        self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
+                                        break 
+                                    else:
+                                        self.new_data_signal.emit(rpm, torque)
                                 except ValueError:
                                     pass
             except Exception:
-                self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
-                self.msleep(2000)
+                # Patient Retry Loop if the backend drops or MATLAB takes over
+                self.status_signal.emit("Searching for MIXR-1 Node (Waiting for Mode 2)...", "#f85149")
+                self.msleep(2000) 
 
     def stop(self):
         self.running = False
@@ -57,8 +65,8 @@ class TelemetryReceiver(QThread):
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MIXR-1 Real-Time Telemetry")
-        self.resize(800, 700)
+        self.setWindowTitle("MIXR-1 Experimental Telemetry (Mode 2)")
+        self.resize(900, 750)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -73,25 +81,25 @@ class ThesisDashboard(QMainWindow):
         # Plot 1: RPM vs Time
         self.rpm_plot = pg.PlotWidget(title="Time vs. Motor Velocity")
         self.rpm_plot.setLabel('left', 'Velocity', units='RPM')
-        self.rpm_plot.setLabel('bottom', 'Time', units='100ms intervals')
+        self.rpm_plot.setLabel('bottom', 'Time', units='Seconds')
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         layout.addWidget(self.rpm_plot)
 
         # Plot 2: Torque vs Time
         self.torque_plot = pg.PlotWidget(title="Time vs. Inline Torque")
         self.torque_plot.setLabel('left', 'Torque', units='N-m')
-        self.torque_plot.setLabel('bottom', 'Time', units='100ms intervals')
+        self.torque_plot.setLabel('bottom', 'Time', units='Seconds')
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         layout.addWidget(self.torque_plot)
 
-        # Buffer limits how much time is displayed on the X-axis (100 samples * 100ms = 10 seconds of rolling time)
-        self.buffer_size = 100
-        self.x_data = np.arange(self.buffer_size)
-        self.rpm_data = np.zeros(self.buffer_size)
-        self.torque_data = np.zeros(self.buffer_size)
+        # Initialize empty arrays for dynamic expanding data
+        self.time_data = []
+        self.rpm_data = []
+        self.torque_data = []
+        self.sample_count = 0 
         
-        self.rpm_line = self.rpm_plot.plot(self.x_data, self.rpm_data, pen=pg.mkPen(color='#58a6ff', width=2))
-        self.torque_line = self.torque_plot.plot(self.x_data, self.torque_data, pen=pg.mkPen(color='#ff7b72', width=2))
+        self.rpm_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
+        self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
         # Launch background networking
         self.network_thread = TelemetryReceiver()
@@ -100,18 +108,32 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.start()
 
     def update_plots(self, rpm, torque):
-        # Shift arrays and append newest data points representing the current time instance
-        self.rpm_data[:-1] = self.rpm_data[1:]
-        self.rpm_data[-1] = rpm
-        self.rpm_line.setData(self.x_data, self.rpm_data)
+        # Calculate actual time elapsed based on the 100ms hardware cycle
+        elapsed_seconds = self.sample_count * 0.1
+        
+        # Append new data to the arrays
+        self.time_data.append(elapsed_seconds)
+        self.rpm_data.append(rpm)
+        self.torque_data.append(torque)
+        
+        self.sample_count += 1
 
-        self.torque_data[:-1] = self.torque_data[1:]
-        self.torque_data[-1] = torque
-        self.torque_line.setData(self.x_data, self.torque_data)
+        # Redraw the lines with the entire dataset
+        self.rpm_line.setData(self.time_data, self.rpm_data)
+        self.torque_line.setData(self.time_data, self.torque_data)
 
     def update_status(self, msg, color):
         self.status_lbl.setText(f"Status: {msg}")
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {color}; font-size: 14px;")
+
+        # Clear the graph when returning to Mode 2 from a MATLAB interruption
+        if "Mode 2 Active" in msg and self.sample_count > 0:
+            self.time_data.clear()
+            self.rpm_data.clear()
+            self.torque_data.clear()
+            self.sample_count = 0
+            self.rpm_line.setData([], [])
+            self.torque_line.setData([], [])
 
     def closeEvent(self, event):
         self.network_thread.stop()
