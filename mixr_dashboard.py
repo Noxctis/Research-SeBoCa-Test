@@ -3,7 +3,6 @@ import socket
 import math
 import time
 import csv
-import collections
 import numpy as np
 import scipy.io as sio
 import pyqtgraph as pg
@@ -64,15 +63,14 @@ class TelemetryReceiver(QThread):
         self.wait()
 
 # ==========================================
-# MODULE 2: HIGH-PERFORMANCE TABLE MODEL
+# MODULE 2: VIRTUALIZED TABLE MODEL
 # ==========================================
 class TelemetryTableModel(QAbstractTableModel):
-    def __init__(self, max_rows=500):
+    def __init__(self):
         super().__init__()
-        self.max_rows = max_rows
         self.headers = ["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
-        # Deque ensures O(1) performance. It automatically drops the oldest item at index 0 when full.
-        self.dataset = collections.deque(maxlen=max_rows)
+        # Standard list allows infinite O(1) appends. Memory is limited only by system RAM.
+        self.dataset = [] 
 
     def rowCount(self, parent=QModelIndex()):
         return len(self.dataset)
@@ -97,21 +95,20 @@ class TelemetryTableModel(QAbstractTableModel):
         return None
 
     def add_row(self, row_data):
-        if len(self.dataset) < self.max_rows:
-            self.beginInsertRows(QModelIndex(), len(self.dataset), len(self.dataset))
-            self.dataset.append(row_data)
-            self.endInsertRows()
-        else:
-            self.dataset.append(row_data)
-            # Notify the UI that the background buffer shifted, triggering an instant native repaint
-            top_left = self.index(0, 0)
-            bottom_right = self.index(self.max_rows - 1, len(self.headers) - 1)
-            self.dataChanged.emit(top_left, bottom_right)
+        row_idx = len(self.dataset)
+        # beginInsertRows signals the QTableView to allocate scrollbar space without rendering hidden rows
+        self.beginInsertRows(QModelIndex(), row_idx, row_idx)
+        self.dataset.append(row_data)
+        self.endInsertRows()
 
     def clear_data(self):
         self.beginResetModel()
         self.dataset.clear()
         self.endResetModel()
+
+    def get_column_data(self, col_index):
+        # Extracts specific columns for the plotting arrays
+        return [row[col_index] for row in self.dataset]
 
 # ==========================================
 # MODULE 3: THESIS UI RENDERING
@@ -119,16 +116,7 @@ class TelemetryTableModel(QAbstractTableModel):
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
-        
-        # Permanent arrays for exporting
-        self.time_data = []
-        self.rpm_data = []
-        self.torque_data = []
-        self.power_data = []
-        self.nre_data = []
-        self.npo_data = []
         self.sample_count = 0 
-        
         self._setup_ui()
         self._start_network()
 
@@ -141,7 +129,6 @@ class ThesisDashboard(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Top Navigation
         nav_layout = QHBoxLayout()
         title_container = QVBoxLayout()
         app_title = QLabel("MIXR-1")
@@ -176,7 +163,6 @@ class ThesisDashboard(QMainWindow):
         divider.setStyleSheet("color: #30363d;")
         main_layout.addWidget(divider)
 
-        # Page Manager
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
@@ -195,7 +181,6 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # Region A: Parameters
         control_group = QGroupBox("Region A: Experiment Parameters")
         control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         control_layout = QFormLayout()
@@ -227,12 +212,12 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # Region B: Native QTableView connected to the TelemetryTableModel
+        # Region B: Native Virtualized QTableView
         table_group = QGroupBox("Live Data Log")
         table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
         table_layout = QVBoxLayout()
         
-        self.table_model = TelemetryTableModel(max_rows=500)
+        self.table_model = TelemetryTableModel()
         self.data_table = QTableView()
         self.data_table.setModel(self.table_model)
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -243,7 +228,6 @@ class ThesisDashboard(QMainWindow):
         left_panel.addWidget(table_group)
         page_layout.addLayout(left_panel, stretch=1)
 
-        # Right Panel: Plots
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -339,41 +323,39 @@ class ThesisDashboard(QMainWindow):
         n_re = (rho * n_revs * (D**2)) / mu if n_revs > 0 else 0.0
         n_po = power_w / (rho * (n_revs**3) * (D**5)) if n_revs > 0 else 0.0
 
-        # Permanent background storage (Export Data)
-        self.time_data.append(elapsed_seconds)
-        self.rpm_data.append(rpm)
-        self.torque_data.append(torque)
-        self.power_data.append(power_w)
-        self.nre_data.append(n_re if n_re > 0 else 1e-5)
-        self.npo_data.append(n_po if n_po > 0 else 1e-5)
-
-        # Plot Updates
-        self.rpm_line.setData(self.time_data, self.rpm_data)
-        self.torque_line.setData(self.time_data, self.torque_data)
-        self.power_line.setData(self.time_data, self.power_data)
-        self.npo_scatter.setData(self.nre_data, self.npo_data)
-
-        # UI Table Update (Native O(1) buffer append)
+        # Append to the unified data model
         self.table_model.add_row((elapsed_seconds, rpm, torque, power_w, n_re, n_po))
-        self.data_table.scrollToBottom()
+        #self.data_table.scrollToBottom()
+
+        # Update plots dynamically directly from the model to prevent array duplication
+        self.rpm_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(1))
+        self.torque_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(2))
+        self.power_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(3))
+        
+        # Replace 0s with 1e-5 to satisfy logarithmic scale constraints
+        nre_safe = [x if x > 0 else 1e-5 for x in self.table_model.get_column_data(4)]
+        npo_safe = [x if x > 0 else 1e-5 for x in self.table_model.get_column_data(5)]
+        self.npo_scatter.setData(nre_safe, npo_safe)
 
     def export_data(self):
-        if not self.time_data: return
+        if self.table_model.rowCount() == 0: return
 
         timestamp = int(time.time())
         csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
 
         with open(csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["Time (s)", "RPM", "Torque (N-m)", "Power (W)", "N_Re", "N_Po"])
-            for i in range(len(self.time_data)):
-                writer.writerow([self.time_data[i], self.rpm_data[i], self.torque_data[i], 
-                                 self.power_data[i], self.nre_data[i], self.npo_data[i]])
+            writer.writerow(self.table_model.headers)
+            for row in self.table_model.dataset:
+                writer.writerow(row)
 
         sio.savemat(mat_file, {
-            "time_s": np.array(self.time_data), "RPM": np.array(self.rpm_data),
-            "Torque_Nm": np.array(self.torque_data), "Power_W": np.array(self.power_data),
-            "N_Re": np.array(self.nre_data), "N_Po": np.array(self.npo_data)
+            "time_s": np.array(self.table_model.get_column_data(0)), 
+            "RPM": np.array(self.table_model.get_column_data(1)),
+            "Torque_Nm": np.array(self.table_model.get_column_data(2)), 
+            "Power_W": np.array(self.table_model.get_column_data(3)),
+            "N_Re": np.array(self.table_model.get_column_data(4)), 
+            "N_Po": np.array(self.table_model.get_column_data(5))
         })
         
         QMessageBox.information(self, "Export Complete", f"Data saved to:\n{csv_file}\n{mat_file}")
@@ -390,13 +372,8 @@ class ThesisDashboard(QMainWindow):
             self.set_mode3_waiting()
             self.switch_page(0)
             if self.sample_count > 0:
-                self.time_data.clear(); self.rpm_data.clear(); self.torque_data.clear()
-                self.power_data.clear(); self.nre_data.clear(); self.npo_data.clear()
-                self.sample_count = 0
-                
-                # Instantly drop table layout
                 self.table_model.clear_data()
-                        
+                self.sample_count = 0
                 self.rpm_line.setData([], []); self.torque_line.setData([], [])
                 self.power_line.setData([], []); self.npo_scatter.setData([], [])
 
