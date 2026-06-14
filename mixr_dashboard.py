@@ -3,18 +3,17 @@ import socket
 import math
 import time
 import csv
+import collections
 import numpy as np
 import scipy.io as sio
 import pyqtgraph as pg
+from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
                              QWidget, QLabel, QComboBox, QTableView, 
                              QHeaderView, QGroupBox, QFormLayout, QPushButton, QStackedWidget,
                              QFrame, QSpacerItem, QSizePolicy, QMessageBox)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
 
-# ==========================================
-# MODULE 1: NETWORK THREAD
-# ==========================================
 class TelemetryReceiver(QThread):
     new_data_signal = pyqtSignal(float, float) 
     status_signal = pyqtSignal(str, str)
@@ -62,15 +61,11 @@ class TelemetryReceiver(QThread):
         self.running = False
         self.wait()
 
-# ==========================================
-# MODULE 2: VIRTUALIZED TABLE MODEL
-# ==========================================
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self):
         super().__init__()
         self.headers = ["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
-        # Standard list allows infinite O(1) appends. Memory is limited only by system RAM.
-        self.dataset = [] 
+        self.dataset = collections.deque()
 
     def rowCount(self, parent=QModelIndex()):
         return len(self.dataset)
@@ -96,7 +91,6 @@ class TelemetryTableModel(QAbstractTableModel):
 
     def add_row(self, row_data):
         row_idx = len(self.dataset)
-        # beginInsertRows signals the QTableView to allocate scrollbar space without rendering hidden rows
         self.beginInsertRows(QModelIndex(), row_idx, row_idx)
         self.dataset.append(row_data)
         self.endInsertRows()
@@ -107,12 +101,8 @@ class TelemetryTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def get_column_data(self, col_index):
-        # Extracts specific columns for the plotting arrays
         return [row[col_index] for row in self.dataset]
 
-# ==========================================
-# MODULE 3: THESIS UI RENDERING
-# ==========================================
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -181,8 +171,24 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
+        group_box_style = """
+            QGroupBox { 
+                border: 1px solid #30363d; 
+                border-radius: 6px; 
+                margin-top: 1.5em; 
+                padding: 15px 10px 10px 10px;
+            } 
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                left: 10px; 
+                padding: 0 5px; 
+                color: #c9d1d9;
+                font-weight: bold;
+            }
+        """
+
         control_group = QGroupBox("Region A: Experiment Parameters")
-        control_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
+        control_group.setStyleSheet(group_box_style)
         control_layout = QFormLayout()
         
         combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
@@ -212,9 +218,8 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # Region B: Native Virtualized QTableView
         table_group = QGroupBox("Live Data Log")
-        table_group.setStyleSheet("QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 10px; }")
+        table_group.setStyleSheet(group_box_style)
         table_layout = QVBoxLayout()
         
         self.table_model = TelemetryTableModel()
@@ -323,16 +328,13 @@ class ThesisDashboard(QMainWindow):
         n_re = (rho * n_revs * (D**2)) / mu if n_revs > 0 else 0.0
         n_po = power_w / (rho * (n_revs**3) * (D**5)) if n_revs > 0 else 0.0
 
-        # Append to the unified data model
         self.table_model.add_row((elapsed_seconds, rpm, torque, power_w, n_re, n_po))
-        #self.data_table.scrollToBottom()
+        self.data_table.scrollToBottom()
 
-        # Update plots dynamically directly from the model to prevent array duplication
         self.rpm_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(1))
         self.torque_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(2))
         self.power_line.setData(self.table_model.get_column_data(0), self.table_model.get_column_data(3))
         
-        # Replace 0s with 1e-5 to satisfy logarithmic scale constraints
         nre_safe = [x if x > 0 else 1e-5 for x in self.table_model.get_column_data(4)]
         npo_safe = [x if x > 0 else 1e-5 for x in self.table_model.get_column_data(5)]
         self.npo_scatter.setData(nre_safe, npo_safe)
@@ -340,7 +342,7 @@ class ThesisDashboard(QMainWindow):
     def export_data(self):
         if self.table_model.rowCount() == 0: return
 
-        timestamp = int(time.time())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
 
         with open(csv_file, 'w', newline='') as f:
