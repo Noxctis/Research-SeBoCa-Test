@@ -14,6 +14,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                              QFrame, QSpacerItem, QSizePolicy, QMessageBox)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
 
+# ==========================================
+# MODULE 1: NETWORK THREAD
+# ==========================================
 class TelemetryReceiver(QThread):
     new_data_signal = pyqtSignal(float, float) 
     status_signal = pyqtSignal(str, str)
@@ -61,6 +64,9 @@ class TelemetryReceiver(QThread):
         self.running = False
         self.wait()
 
+# ==========================================
+# MODULE 2: VIRTUALIZED TABLE MODEL
+# ==========================================
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self):
         super().__init__()
@@ -103,6 +109,9 @@ class TelemetryTableModel(QAbstractTableModel):
     def get_column_data(self, col_index):
         return [row[col_index] for row in self.dataset]
 
+# ==========================================
+# MODULE 3: THESIS UI RENDERING
+# ==========================================
 class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -171,24 +180,8 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        group_box_style = """
-            QGroupBox { 
-                border: 1px solid #30363d; 
-                border-radius: 6px; 
-                margin-top: 1.5em; 
-                padding: 15px 10px 10px 10px;
-            } 
-            QGroupBox::title { 
-                subcontrol-origin: margin; 
-                left: 10px; 
-                padding: 0 5px; 
-                color: #c9d1d9;
-                font-weight: bold;
-            }
-        """
-
+        # Build structures without styling first
         control_group = QGroupBox("Region A: Experiment Parameters")
-        control_group.setStyleSheet(group_box_style)
         control_layout = QFormLayout()
         
         combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
@@ -219,7 +212,6 @@ class ThesisDashboard(QMainWindow):
         left_panel.addWidget(control_group)
 
         table_group = QGroupBox("Live Data Log")
-        table_group.setStyleSheet(group_box_style)
         table_layout = QVBoxLayout()
         
         self.table_model = TelemetryTableModel()
@@ -253,6 +245,27 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
+
+        # Apply CSS geometries strictly after structure formulation
+        group_box_style = """
+            QGroupBox { 
+                border: 1px solid #30363d; 
+                border-radius: 6px; 
+                margin-top: 24px; 
+                padding-top: 24px;
+                font-weight: bold;
+            } 
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                subcontrol-position: top left;
+                left: 12px; 
+                top: 4px;
+                padding: 0 6px; 
+                color: #ffffff;
+            }
+        """
+        control_group.setStyleSheet(group_box_style)
+        table_group.setStyleSheet(group_box_style)
 
         self.stacked_widget.addWidget(page_widget)
 
