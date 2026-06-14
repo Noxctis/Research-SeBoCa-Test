@@ -412,7 +412,7 @@ class ThesisDashboard(QMainWindow):
 
         # Update Table Model
         self.table_model.add_row((timestamp, rpm, torque, power_w, n_re, n_po))
-        self.data_table.scrollToBottom()
+        #self.data_table.scrollToBottom()
 
         # Update Graph Lines
         t_data = self.table_model.get_column_data(0)
