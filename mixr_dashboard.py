@@ -39,6 +39,7 @@ import socket
 import csv
 import logging
 import queue
+import signal
 from collections import deque
 from datetime import datetime
 from dataclasses import dataclass
@@ -341,19 +342,19 @@ class ThesisDashboard(QMainWindow):
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
 
-        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)
+        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         self.rpm_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)
+        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
-        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)
+        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
-        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)
+        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
@@ -505,7 +506,12 @@ class ThesisDashboard(QMainWindow):
             a0.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = ThesisDashboard()
-    window.show()
-    sys.exit(app.exec())
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    try:
+        app = QApplication(sys.argv)
+        window = ThesisDashboard()
+        window.show()
+        sys.exit(app.exec())
+    except KeyboardInterrupt:
+        print("\n[MIXR-1] Dashboard closed cleanly by user.")
+        sys.exit(0)
