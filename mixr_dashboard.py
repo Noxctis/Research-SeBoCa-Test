@@ -48,7 +48,7 @@ import logging
 from collections import deque
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Deque
+from typing import Optional, Tuple, List, Deque, Any
 
 import numpy as np
 import scipy.io as sio
@@ -59,6 +59,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
+from PyQt6.QtGui import QCloseEvent
 
 # ==========================================
 # CONFIGURATION & LOGGING
@@ -191,7 +192,7 @@ class TelemetryTableModel(QAbstractTableModel):
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self.headers)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid():
             return None
             
@@ -341,7 +342,11 @@ class ThesisDashboard(QMainWindow):
         self.table_model = TelemetryTableModel(max_rows=self.config.MAX_TABLE_ROWS)
         self.data_table = QTableView()
         self.data_table.setModel(self.table_model)
-        self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        header = self.data_table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            
         self.data_table.setStyleSheet("QTableView { background-color: #0d1117; gridline-color: #30363d; border: none; color: #c9d1d9; } QHeaderView::section { background-color: #161b22; border: 1px solid #30363d; padding: 4px; color: #c9d1d9; }")
         
         table_layout.addWidget(self.data_table)
@@ -354,19 +359,19 @@ class ThesisDashboard(QMainWindow):
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
 
-        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)
+        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         self.rpm_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)
+        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
-        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)
+        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
-        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)
+        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
@@ -519,10 +524,11 @@ class ThesisDashboard(QMainWindow):
                 self.power_line.setData([], [])
                 self.npo_scatter.setData([], [])
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         """Fires automatically when the user clicks the X button."""
         self.network_thread.stop()
-        event.accept()
+        if a0 is not None:
+            a0.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
