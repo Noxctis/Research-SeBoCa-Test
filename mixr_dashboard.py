@@ -6,9 +6,6 @@ import importlib.util
 # ==========================================
 # MODULE 0: DEPENDENCY BOOTSTRAPPER
 # ==========================================
-# This block must remain at the absolute top of the file.
-# It checks for required libraries and installs them before 
-# Python attempts to parse the third-party imports below.
 REQUIRED_PACKAGES = {
     "PyQt6": "PyQt6",
     "pyqtgraph": "pyqtgraph",
@@ -19,7 +16,6 @@ REQUIRED_PACKAGES = {
 def ensure_dependencies() -> None:
     missing = []
     for mod_name, pip_name in REQUIRED_PACKAGES.items():
-        # find_spec checks if the module exists without actually loading it into memory
         if importlib.util.find_spec(mod_name) is None:
             missing.append(pip_name)
             
@@ -29,7 +25,6 @@ def ensure_dependencies() -> None:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
             print("[MIXR Loader] Installations complete. Restarting application environment...")
-            # Restart the script so Python's internal module cache recognizes the newly installed files
             os.execv(sys.executable, [sys.executable] + sys.argv)
         except subprocess.CalledProcessError as e:
             print(f"[MIXR Loader] CRITICAL: Dependency installation failed. Error: {e}")
@@ -78,20 +73,14 @@ class SystemConfig:
     SOCKET_TIMEOUT: float = 3.0
     RECONNECT_DELAY_SEC: float = 2.0
     BUFFER_SIZE: int = 1024
-    MAX_TABLE_ROWS: int = 100000  # Prevent memory overflow on long runs
+    MAX_TABLE_ROWS: int = 100000
 
 # ==========================================
 # BUSINESS LOGIC (MATH ENGINE)
 # ==========================================
 class FluidCalculations:
-    """Pure functions for fluid dynamics to separate math from UI."""
-    
     @staticmethod
     def calculate_metrics(rpm: float, torque: float, rho: float, mu: float, d: float) -> Tuple[float, float, float]:
-        """
-        Calculates Power, Reynolds Number, and Power Number.
-        Returns: (power_watts, reynolds_number, power_number)
-        """
         n_revs = rpm / 60.0
         power_w = torque * (n_revs * 2 * math.pi)
         
@@ -108,10 +97,8 @@ class FluidCalculations:
 # MODULE 1: NETWORK THREAD
 # ==========================================
 class TelemetryReceiver(QThread):
-    """Background thread handling non-blocking TCP socket communication."""
-    
-    new_data_signal = pyqtSignal(float, float, float)  # (timestamp, rpm, torque)
-    status_signal = pyqtSignal(str, str)               # (message, hex_color)
+    new_data_signal = pyqtSignal(float, float, float)
+    status_signal = pyqtSignal(str, str)
 
     def __init__(self, config: SystemConfig):
         super().__init__()
@@ -129,13 +116,13 @@ class TelemetryReceiver(QThread):
                     
                     logger.info("Connected to hardware daemon successfully.")
                     self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
-                    s.settimeout(None)  # Switch to blocking mode for stable streaming
+                    s.settimeout(None)
                     
                     buffer = ""
-                    start_time = time.time()  # Establish hardware baseline T=0
+                    start_time = time.time()
+                    current_mode = 2 
                     
                     while self._is_running:
-                        # Decode with ignore to prevent fatal crash on split bytes
                         chunk = s.recv(self.config.BUFFER_SIZE).decode('utf-8', errors='ignore')
                         if not chunk:
                             logger.warning("Empty chunk received. Remote socket closed.")
@@ -151,11 +138,29 @@ class TelemetryReceiver(QThread):
                                 rpm_str, torque_str = line.split(",")
                                 rpm, torque = float(rpm_str), float(torque_str)
 
-                                if rpm == -1.0 and torque == -1.0:
-                                    logger.info("Hardware handover to MATLAB detected.")
+                                # Process Mode 3 Heartbeat (Keep socket open)
+                                if rpm == -2.0 and torque == -2.0:
+                                    if current_mode != 3:
+                                        logger.info("MATLAB Mode 3 Heartbeat detected.")
+                                        self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
+                                        current_mode = 3
+                                    continue 
+
+                                # Legacy teardown packet (Optional catch)
+                                elif rpm == -1.0 and torque == -1.0:
+                                    logger.info("Hardware handover to MATLAB detected (Legacy).")
                                     self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
                                     break 
+
+                                # Process normal Mode 2 Telemetry
                                 else:
+                                    # If returning from Mode 3, trigger UI reset
+                                    if current_mode != 2:
+                                        logger.info("Hardware reclaimed for Mode 2.")
+                                        self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
+                                        start_time = time.time() # Reset graph timer for new run
+                                        current_mode = 2
+                                        
                                     current_t = time.time() - start_time
                                     self.new_data_signal.emit(current_t, rpm, torque)
                                     
@@ -170,7 +175,6 @@ class TelemetryReceiver(QThread):
                 time.sleep(self.config.RECONNECT_DELAY_SEC)
 
     def stop(self) -> None:
-        """Safely terminate the thread."""
         logger.info("Stopping telemetry thread...")
         self._is_running = False
         self.wait()
@@ -179,8 +183,6 @@ class TelemetryReceiver(QThread):
 # MODULE 2: VIRTUALIZED TABLE MODEL
 # ==========================================
 class TelemetryTableModel(QAbstractTableModel):
-    """MVC Model handling large datasets efficiently for the QTableView."""
-    
     def __init__(self, max_rows: int):
         super().__init__()
         self.headers = ["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
@@ -231,8 +233,6 @@ class TelemetryTableModel(QAbstractTableModel):
 # MODULE 3: THESIS UI RENDERING
 # ==========================================
 class ThesisDashboard(QMainWindow):
-    """Main Application Window."""
-    
     def __init__(self):
         super().__init__()
         self.config = SystemConfig()
@@ -248,7 +248,6 @@ class ThesisDashboard(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Build Navigation Header
         nav_layout = QHBoxLayout()
         title_container = QVBoxLayout()
         app_title = QLabel("MIXR-1")
@@ -283,14 +282,12 @@ class ThesisDashboard(QMainWindow):
         divider.setStyleSheet("color: #30363d;")
         main_layout.addWidget(divider)
 
-        # View Routing
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
         self._build_mode2_page()
         self._build_mode3_page()
 
-        # Connect Navigation Signals
         self.btn_mode2.clicked.connect(lambda: self.switch_page(0))
         self.btn_mode3.clicked.connect(lambda: self.switch_page(1))
 
@@ -298,13 +295,11 @@ class ThesisDashboard(QMainWindow):
         page_widget = QWidget()
         page_layout = QHBoxLayout(page_widget)
 
-        # --- Left Panel: Controls & Table ---
         left_panel = QVBoxLayout()
         self.status_lbl = QLabel("Initializing Network...")
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # Parameters Group
         control_group = QGroupBox("Region A: Experiment Parameters")
         control_layout = QFormLayout()
         
@@ -335,7 +330,6 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # Data Table Group
         table_group = QGroupBox("Live Data Log")
         table_layout = QVBoxLayout()
         
@@ -354,7 +348,6 @@ class ThesisDashboard(QMainWindow):
         left_panel.addWidget(table_group)
         page_layout.addLayout(left_panel, stretch=1)
 
-        # --- Right Panel: Plotting ---
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -376,7 +369,6 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
-        # Global CSS for groups
         group_box_style = """
             QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 24px; padding-top: 24px; font-weight: bold; } 
             QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; top: 4px; padding: 0 6px; color: #ffffff; }
@@ -444,29 +436,22 @@ class ThesisDashboard(QMainWindow):
         self.mode3_desc.setText("System locked. All process controls and hardware interfaces\nare currently managed directly in MATLAB/Simulink.")
 
     def process_and_update(self, timestamp: float, rpm: float, torque: float) -> None:
-        # Halt rendering if tab is hidden to save CPU
         if self.stacked_widget.currentIndex() != 0: 
             return
 
-        # Fetch constants from UI Dropdowns
         rho = self.fluid_cb.currentData()
         mu = self.visc_cb.currentData()
         d_m = self.impeller_cb.currentData()
 
-        # Calculate dynamics
         power_w, n_re, n_po = FluidCalculations.calculate_metrics(rpm, torque, rho, mu, d_m)
 
-        # Update Table Model
         self.table_model.add_row((timestamp, rpm, torque, power_w, n_re, n_po))
-        #self.data_table.scrollToBottom()
 
-        # Update Graph Lines
         t_data = self.table_model.get_column_data(0)
         self.rpm_line.setData(t_data, self.table_model.get_column_data(1))
         self.torque_line.setData(t_data, self.table_model.get_column_data(2))
         self.power_line.setData(t_data, self.table_model.get_column_data(3))
         
-        # Logarithmic plots require non-zero positive numbers
         nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(4)]
         npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
         self.npo_scatter.setData(nre_safe, npo_safe)
@@ -480,14 +465,12 @@ class ThesisDashboard(QMainWindow):
         csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
 
         try:
-            # Context manager ensures file safely closes even if an error occurs
             with open(csv_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(self.table_model.headers)
                 for row in self.table_model.dataset:
                     writer.writerow(row)
 
-            # Export arrays natively for MATLAB thesis analysis
             sio.savemat(mat_file, {
                 "time_s": np.array(self.table_model.get_column_data(0)), 
                 "RPM": np.array(self.table_model.get_column_data(1)),
@@ -516,7 +499,6 @@ class ThesisDashboard(QMainWindow):
             self.set_mode3_waiting()
             self.switch_page(0)
             
-            # Clear old graphs if reconnecting
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
                 self.rpm_line.setData([], [])
@@ -525,7 +507,6 @@ class ThesisDashboard(QMainWindow):
                 self.npo_scatter.setData([], [])
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
-        """Fires automatically when the user clicks the X button."""
         self.network_thread.stop()
         if a0 is not None:
             a0.accept()
