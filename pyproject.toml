@@ -1,0 +1,19 @@
+[project]
+name = "mixr-dashboard"
+version = "1.0.0"
+description = "Experimental Telemetry Dashboard for MIXR-1 Lab Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Chrys Sean Sevilla" }
+]
+dependencies = [
+    "PyQt6>=6.4.0",
+    "pyqtgraph>=0.13.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"

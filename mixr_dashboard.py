@@ -1,4 +1,45 @@
+import os
 import sys
+import subprocess
+import importlib.util
+
+# ==========================================
+# MODULE 0: DEPENDENCY BOOTSTRAPPER
+# ==========================================
+# This block must remain at the absolute top of the file.
+# It checks for required libraries and installs them before 
+# Python attempts to parse the third-party imports below.
+REQUIRED_PACKAGES = {
+    "PyQt6": "PyQt6",
+    "pyqtgraph": "pyqtgraph",
+    "numpy": "numpy",
+    "scipy": "scipy"
+}
+
+def ensure_dependencies() -> None:
+    missing = []
+    for mod_name, pip_name in REQUIRED_PACKAGES.items():
+        # find_spec checks if the module exists without actually loading it into memory
+        if importlib.util.find_spec(mod_name) is None:
+            missing.append(pip_name)
+            
+    if missing:
+        print(f"[MIXR Loader] Missing required libraries: {missing}")
+        print("[MIXR Loader] Executing pip installation sequence...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+            print("[MIXR Loader] Installations complete. Restarting application environment...")
+            # Restart the script so Python's internal module cache recognizes the newly installed files
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except subprocess.CalledProcessError as e:
+            print(f"[MIXR Loader] CRITICAL: Dependency installation failed. Error: {e}")
+            sys.exit(1)
+
+ensure_dependencies()
+
+# ==========================================
+# APPLICATION IMPORTS
+# ==========================================
 import math
 import time
 import socket
