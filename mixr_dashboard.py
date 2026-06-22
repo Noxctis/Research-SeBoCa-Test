@@ -617,14 +617,14 @@ class ThesisDashboard(QMainWindow):
         # ------------------------------------------
         # 1-SECOND ROLLING AVERAGE (TACHOMETER SYNC)
         # ------------------------------------------
-        # Handheld optical tachometers internally sample over a 0.5 to 1.0 second window. 
+        # Handheld optical tachometer internally samples over a 0.8 second window greater than 60 rpm. 
         # Since the hardware daemon strictly transmits telemetry at a decoupled 10Hz, 
-        # isolating the last 10 array indices mathematically replicates exactly 1.0s of physical time.
+        # isolating the last 8 array indices mathematically replicates exactly 0.8s of physical time.
         # This bridges human perception lag, perfectly aligning the visual UI reading with the physical tool.
         if rpm_data:
-            window_size = min(10, len(rpm_data))
+            window_size = min(8, len(rpm_data))
             rolling_avg = sum(rpm_data[-window_size:]) / window_size
-            self.rpm_plot.setTitle(f"Velocity vs. Time (1-Sec Avg: {rolling_avg:.1f} RPM)")
+            self.rpm_plot.setTitle(f"Velocity vs. Time (0.8-Sec Avg: {rolling_avg:.1f} RPM)")
 
     def export_data(self) -> None:
         """
