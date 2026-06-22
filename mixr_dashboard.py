@@ -379,7 +379,55 @@ class ThesisDashboard(QMainWindow):
         self.pwm_input = QSpinBox()
         self.pwm_input.setRange(0, 255)
         self.pwm_input.setValue(0)
-        self.pwm_input.setStyleSheet("QSpinBox { background-color: #21262d; color: #58a6ff; border: 1px solid #30363d; border-radius: 4px; padding: 4px; font-weight: bold; min-width: 50px; }")
+        self.pwm_input.setStyleSheet("""
+            QSpinBox { 
+                background-color: #21262d; 
+                color: #58a6ff; 
+                border: 1px solid #30363d; 
+                border-radius: 4px; 
+                padding: 4px; 
+                font-weight: bold; 
+                min-width: 60px; 
+            }
+            QSpinBox::up-button {
+                subcontrol-origin: border; 
+                subcontrol-position: top right;
+                width: 20px; 
+                border-left: 1px solid #30363d; 
+                background-color: #161b22;
+                border-top-right-radius: 4px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border; 
+                subcontrol-position: bottom right;
+                width: 20px; 
+                border-left: 1px solid #30363d; 
+                border-top: 1px solid #30363d;
+                background-color: #161b22;
+                border-bottom-right-radius: 4px;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #30363d;
+            }
+            QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+                background-color: #58a6ff;
+            }
+            /* Use CSS triangles to draw the arrows so they render correctly on all OS */
+            QSpinBox::up-arrow {
+                width: 0; height: 0;
+                border-left: 4px solid transparent; 
+                border-right: 4px solid transparent; 
+                border-bottom: 4px solid #c9d1d9; 
+            }
+            QSpinBox::down-arrow {
+                width: 0; height: 0;
+                border-left: 4px solid transparent; 
+                border-right: 4px solid transparent; 
+                border-top: 4px solid #c9d1d9; 
+            }
+            QSpinBox::up-arrow:pressed { border-bottom-color: #0d1117; }
+            QSpinBox::down-arrow:pressed { border-top-color: #0d1117; }
+        """)
         
         # Bidirectional hardware synchronization
         self.pwm_slider.valueChanged.connect(self.pwm_input.setValue)
