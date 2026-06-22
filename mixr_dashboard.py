@@ -170,7 +170,7 @@ class TelemetryReceiver(QThread):
                     s.settimeout(0.01) 
                     
                     buffer = ""
-                    start_time = time.time()
+                    start_time = None
                     current_mode = 2 
                     
                     while self._is_running:
@@ -202,7 +202,7 @@ class TelemetryReceiver(QThread):
                                         continue 
 
                                     else:
-                                        if current_mode != 2:
+                                        if current_mode != 2 or start_time is None:
                                             self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
                                             start_time = time.time()
                                             current_mode = 2
