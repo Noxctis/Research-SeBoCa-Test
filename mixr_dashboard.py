@@ -75,13 +75,19 @@ class SystemConfig:
 class FluidCalculations:
     @staticmethod
     def calculate_metrics(rpm: float, torque: float, rho: float, mu: float, d: float) -> Tuple[float, float, float]:
+        # Industry standard: Prevent ZeroDivisionError crash on edge-case UI inputs
+        if mu <= 0 or rho <= 0 or d <= 0:
+            return 0.0, 0.0, 0.0
+
         n_revs = rpm / 60.0
         power_w = torque * (n_revs * 2 * math.pi)
+        
         if n_revs > 0:
             n_re = (rho * n_revs * (d**2)) / mu
             n_po = power_w / (rho * (n_revs**3) * (d**5))
         else:
             n_re, n_po = 0.0, 0.0
+            
         return power_w, n_re, n_po
 
 # ==========================================
@@ -95,22 +101,35 @@ class TelemetryReceiver(QThread):
         super().__init__()
         self.config = config
         self._is_running = True
-        self.cmd_queue = queue.Queue() # Thread-safe pipe for outgoing commands
+        self.cmd_queue = queue.Queue()
 
     def send_command(self, cmd_string: str) -> None:
-        """Called by the main UI thread to queue outbound packets safely."""
+        """
+        Industry Standard Fast-Slider Fix: 
+        Actively purges obsolete intermediate slider values from the queue.
+        This guarantees only the absolute latest coordinate is pushed over the wire.
+        """
+        while not self.cmd_queue.empty():
+            try:
+                self.cmd_queue.get_nowait()
+            except queue.Empty:
+                break
         self.cmd_queue.put(cmd_string)
 
     def run(self) -> None:
         while self._is_running:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    # Explicitly disable Nagle's algorithm. Forces immediate transmission 
+                    # of small 15-byte command packets to eliminate UI-to-hardware latency.
+                    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    
                     s.settimeout(3.0)
                     s.connect((self.config.NETWORK_HOST, self.config.NETWORK_PORT))
                     
                     self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
                     
-                    # Short 50ms timeout allows the loop to check for outgoing commands
+                    # 50ms polling timeout for highly responsive thread yielding
                     s.settimeout(0.05) 
                     
                     buffer = ""
@@ -118,12 +137,12 @@ class TelemetryReceiver(QThread):
                     current_mode = 2 
                     
                     while self._is_running:
-                        # 1. Flush any queued commands from the UI out to the hardware
+                        # 1. Dispatch outward hardware commands instantly
                         while not self.cmd_queue.empty():
                             outbound = self.cmd_queue.get()
                             s.sendall(outbound.encode('utf-8'))
 
-                        # 2. Read incoming telemetry
+                        # 2. Read incoming hardware telemetry
                         try:
                             chunk = s.recv(1024).decode('utf-8', errors='ignore')
                             if not chunk: break 
@@ -155,7 +174,7 @@ class TelemetryReceiver(QThread):
                                     pass
                                     
                         except socket.timeout:
-                            # 50ms timeout passed with no new hardware data. This is normal.
+                            # Standard polling timeout exception; loop continues cleanly
                             continue
                             
             except Exception:
@@ -293,7 +312,6 @@ class ThesisDashboard(QMainWindow):
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.setStyleSheet(combo_style)
 
-        # Build Bi-Directional PWM Slider
         pwm_layout = QHBoxLayout()
         self.pwm_slider = QSlider(Qt.Orientation.Horizontal)
         self.pwm_slider.setRange(0, 255)
