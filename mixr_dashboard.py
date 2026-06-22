@@ -215,9 +215,16 @@ class TelemetryReceiver(QThread):
                         except socket.timeout:
                             continue # Clean loop yield if no hardware data arrived in the last 10ms
                             
+                    # Make sure final motor-off commands are sent over the wire before closing the socket
+                    while not self.cmd_queue.empty():
+                        s.sendall(self.cmd_queue.get().encode('utf-8'))
+                            
             except Exception:
                 self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
-                time.sleep(self.config.RECONNECT_DELAY_SEC)
+                # Non-blocking sleep allows the thread to be instantly terminated on exit
+                for _ in range(int(self.config.RECONNECT_DELAY_SEC * 10)):
+                    if not self._is_running: break
+                    time.sleep(0.1)
 
     def stop(self) -> None:
         self._is_running = False
@@ -582,6 +589,17 @@ class ThesisDashboard(QMainWindow):
         power_w, n_re, n_po = FluidCalculations.calculate_metrics(rpm, torque, rho, mu, d_m)
 
         self.table_model.add_row((timestamp, rpm, torque, power_w, n_re, n_po))
+
+        # PREVENT GUI EVENT QUEUE BACKLOG & "NOT RESPONDING" FREEZES
+        # We limit the heavy graphing/list comprehensions to ~5 render frames per second. 
+        # (Data is still safely and accurately appended to your Table and CSV arrays at the full hardware speed).
+        current_sys_time = time.time()
+        if not hasattr(self, '_last_render_time'):
+            self._last_render_time = 0.0
+            
+        if current_sys_time - self._last_render_time < 0.2:
+            return  
+        self._last_render_time = current_sys_time
 
         t_data = self.table_model.get_column_data(0)
         rpm_data = self.table_model.get_column_data(1)
