@@ -75,7 +75,6 @@ class SystemConfig:
 class FluidCalculations:
     @staticmethod
     def calculate_metrics(rpm: float, torque: float, rho: float, mu: float, d: float) -> Tuple[float, float, float]:
-        # Industry standard: Prevent ZeroDivisionError crash on edge-case UI inputs
         if mu <= 0 or rho <= 0 or d <= 0:
             return 0.0, 0.0, 0.0
 
@@ -104,11 +103,6 @@ class TelemetryReceiver(QThread):
         self.cmd_queue = queue.Queue()
 
     def send_command(self, cmd_string: str) -> None:
-        """
-        Industry Standard Fast-Slider Fix: 
-        Actively purges obsolete intermediate slider values from the queue.
-        This guarantees only the absolute latest coordinate is pushed over the wire.
-        """
         while not self.cmd_queue.empty():
             try:
                 self.cmd_queue.get_nowait()
@@ -120,29 +114,21 @@ class TelemetryReceiver(QThread):
         while self._is_running:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    # Explicitly disable Nagle's algorithm. Forces immediate transmission 
-                    # of small 15-byte command packets to eliminate UI-to-hardware latency.
                     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    
                     s.settimeout(3.0)
                     s.connect((self.config.NETWORK_HOST, self.config.NETWORK_PORT))
-                    
                     self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
-                    
-                    # 50ms polling timeout for highly responsive thread yielding
-                    s.settimeout(0.05) 
+                    s.settimeout(0.01) 
                     
                     buffer = ""
                     start_time = time.time()
                     current_mode = 2 
                     
                     while self._is_running:
-                        # 1. Dispatch outward hardware commands instantly
                         while not self.cmd_queue.empty():
                             outbound = self.cmd_queue.get()
                             s.sendall(outbound.encode('utf-8'))
 
-                        # 2. Read incoming hardware telemetry
                         try:
                             chunk = s.recv(1024).decode('utf-8', errors='ignore')
                             if not chunk: break 
@@ -174,7 +160,6 @@ class TelemetryReceiver(QThread):
                                     pass
                                     
                         except socket.timeout:
-                            # Standard polling timeout exception; loop continues cleanly
                             continue
                             
             except Exception:
@@ -424,7 +409,6 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.start()
 
     def _on_pwm_changed(self, value: int) -> None:
-        """Called live as the user drags the slider."""
         self.pwm_label.setText(str(value))
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
             self.network_thread.send_command(f"CMD:PWM,{value}\n")
@@ -458,13 +442,21 @@ class ThesisDashboard(QMainWindow):
         self.table_model.add_row((timestamp, rpm, torque, power_w, n_re, n_po))
 
         t_data = self.table_model.get_column_data(0)
-        self.rpm_line.setData(t_data, self.table_model.get_column_data(1))
+        rpm_data = self.table_model.get_column_data(1)
+        
+        self.rpm_line.setData(t_data, rpm_data)
         self.torque_line.setData(t_data, self.table_model.get_column_data(2))
         self.power_line.setData(t_data, self.table_model.get_column_data(3))
         
         nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(4)]
         npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
         self.npo_scatter.setData(nre_safe, npo_safe)
+
+        # 1-Second Rolling Average for Tachometer Comparison
+        if rpm_data:
+            window_size = min(10, len(rpm_data))
+            rolling_avg = sum(rpm_data[-window_size:]) / window_size
+            self.rpm_plot.setTitle(f"Velocity vs. Time (1-Sec Avg: {rolling_avg:.1f} RPM)")
 
     def export_data(self) -> None:
         if self.table_model.rowCount() == 0:
@@ -500,7 +492,6 @@ class ThesisDashboard(QMainWindow):
         if "MATLAB Mode 3 Active" in msg:
             self.set_mode3_active()
             self.switch_page(1)
-            # Disable hardware controls during handover
             self.pwm_slider.setEnabled(False)
 
         if "Mode 2 Active" in msg:
@@ -514,9 +505,9 @@ class ThesisDashboard(QMainWindow):
                 self.torque_line.setData([], [])
                 self.power_line.setData([], [])
                 self.npo_scatter.setData([], [])
+                self.rpm_plot.setTitle("Velocity vs. Time")
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
-        # Zero out the physical motor before closing the UI
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
             self.network_thread.send_command("CMD:PWM,0\n")
         self.network_thread.stop()
