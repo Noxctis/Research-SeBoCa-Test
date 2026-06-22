@@ -67,7 +67,7 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
     QComboBox, QTableView, QHeaderView, QGroupBox, QFormLayout, QPushButton, 
-    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider
+    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, QSpinBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
 from PyQt6.QtGui import QCloseEvent
@@ -369,18 +369,27 @@ class ThesisDashboard(QMainWindow):
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.setStyleSheet(combo_style)
 
+        # Modulated Control Implementation: Slider + Manual SpinBox Sync
         pwm_layout = QHBoxLayout()
         self.pwm_slider = QSlider(Qt.Orientation.Horizontal)
         self.pwm_slider.setRange(0, 255)
         self.pwm_slider.setValue(0)
         self.pwm_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
         
-        self.pwm_label = QLabel("0")
-        self.pwm_label.setStyleSheet("font-weight: bold; min-width: 30px; text-align: right; color: #58a6ff;")
+        self.pwm_input = QSpinBox()
+        self.pwm_input.setRange(0, 255)
+        self.pwm_input.setValue(0)
+        self.pwm_input.setStyleSheet("QSpinBox { background-color: #21262d; color: #58a6ff; border: 1px solid #30363d; border-radius: 4px; padding: 4px; font-weight: bold; min-width: 50px; }")
+        
+        # Bidirectional hardware synchronization
+        self.pwm_slider.valueChanged.connect(self.pwm_input.setValue)
+        self.pwm_input.valueChanged.connect(self.pwm_slider.setValue)
+        
+        # Trigger network packet on change
         self.pwm_slider.valueChanged.connect(self._on_pwm_changed)
         
-        pwm_layout.addWidget(self.pwm_slider)
-        pwm_layout.addWidget(self.pwm_label)
+        pwm_layout.addWidget(self.pwm_slider, stretch=4)
+        pwm_layout.addWidget(self.pwm_input, stretch=1)
 
         control_layout.addRow("Density (ρ):", self.fluid_cb)
         control_layout.addRow("Viscosity (μ):", self.visc_cb)
@@ -490,7 +499,7 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.start()
 
     def _on_pwm_changed(self, value: int) -> None:
-        self.pwm_label.setText(str(value))
+        """Transmits the unified value dynamically across the socket."""
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
             self.network_thread.send_command(f"CMD:PWM,{value}\n")
 
@@ -594,12 +603,14 @@ class ThesisDashboard(QMainWindow):
             self.set_mode3_active()
             self.switch_page(1)
             self.pwm_slider.setEnabled(False)
+            self.pwm_input.setEnabled(False)
 
         # Triggers a safe visual and memory teardown if the C++ daemon drops connection or resets
         if "Mode 2 Active" in msg:
             self.set_mode3_waiting()
             self.switch_page(0)
             self.pwm_slider.setEnabled(True)
+            self.pwm_input.setEnabled(True)
             
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
