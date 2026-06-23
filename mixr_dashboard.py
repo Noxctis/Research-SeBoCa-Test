@@ -67,7 +67,7 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
     QComboBox, QTableView, QHeaderView, QGroupBox, QFormLayout, QPushButton, 
-    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, QSpinBox
+    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, QSpinBox, QDialog, QProgressBar
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
 from PyQt6.QtGui import QCloseEvent
@@ -278,6 +278,109 @@ class TelemetryTableModel(QAbstractTableModel):
         return [row[col_index] for row in self.dataset]
 
 # ==========================================
+# MODULE 2.5: AUTOMATED STEP TEST
+# ==========================================
+class StepTestThread(QThread):
+    pwm_update_signal = pyqtSignal(int)
+    progress_signal = pyqtSignal(str, int)
+    finished_signal = pyqtSignal()
+    
+    def __init__(self):
+        super().__init__()
+        self._is_running = True
+        
+    def run(self) -> None:
+        steps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        step_duration = 10
+        total_time = len(steps) * step_duration
+        
+        for i, percent in enumerate(steps):
+            if not self._is_running: break
+            pwm_val = int((percent / 100.0) * 255)
+            self.pwm_update_signal.emit(pwm_val)
+            
+            for sec in range(step_duration):
+                if not self._is_running: break
+                elapsed = (i * step_duration) + sec
+                overall_progress = int((elapsed / total_time) * 100)
+                self.progress_signal.emit(f"Running {percent}% PWM... ({sec}/{step_duration}s)", overall_progress)
+                time.sleep(1)
+                
+        if self._is_running:
+            self.pwm_update_signal.emit(0)
+            self.progress_signal.emit("Test Complete. Motor stopped.", 100)
+        else:
+            self.pwm_update_signal.emit(0)
+            self.progress_signal.emit("Test Aborted. Motor stopped.", 0)
+            
+        self.finished_signal.emit()
+
+    def stop(self) -> None:
+        self._is_running = False
+        self.wait()
+
+class StepTestWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Automated Step Test")
+        self.setFixedSize(400, 200)
+        self.setStyleSheet("background-color: #161b22; color: #c9d1d9;")
+        
+        layout = QVBoxLayout(self)
+        
+        self.status_lbl = QLabel("Ready to start step test (0% to 100% PWM, 10s each)")
+        self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(self.status_lbl)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #30363d; border-radius: 4px; text-align: center; } QProgressBar::chunk { background-color: #238636; }")
+        layout.addWidget(self.progress_bar)
+        
+        self.btn_start = QPushButton("Start Test")
+        self.btn_start.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        layout.addWidget(self.btn_start)
+
+        self.btn_stop = QPushButton("Abort Test")
+        self.btn_stop.setStyleSheet("QPushButton { background-color: #da3633; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        self.btn_stop.setEnabled(False)
+        layout.addWidget(self.btn_stop)
+        
+        self.test_thread = StepTestThread()
+        self.test_thread.progress_signal.connect(self.update_progress)
+        self.test_thread.finished_signal.connect(self.test_finished)
+        
+        self.btn_start.clicked.connect(self.start_test)
+        self.btn_stop.clicked.connect(self.stop_test)
+        
+    def start_test(self):
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.test_thread._is_running = True
+        self.test_thread.start()
+        
+    def stop_test(self):
+        self.test_thread.stop()
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        
+    def update_progress(self, msg: str, val: int):
+        self.status_lbl.setText(msg)
+        self.progress_bar.setValue(val)
+        
+    def test_finished(self):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        
+    def closeEvent(self, a0):
+        if self.test_thread.isRunning():
+            self.test_thread.stop()
+        if a0 is not None:
+            a0.accept()
+
+# ==========================================
 # MODULE 3: THESIS UI RENDERING
 # ==========================================
 class ThesisDashboard(QMainWindow):
@@ -454,7 +557,13 @@ class ThesisDashboard(QMainWindow):
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
         self.btn_export.clicked.connect(self.export_data)
+        
+        self.btn_step_test = QPushButton("Automated Step Test")
+        self.btn_step_test.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
+        self.btn_step_test.clicked.connect(self.open_step_test_window)
+
         control_layout.addRow(self.btn_export)
+        control_layout.addRow(self.btn_step_test)
 
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
@@ -557,6 +666,14 @@ class ThesisDashboard(QMainWindow):
         """Transmits the unified value dynamically across the socket."""
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
             self.network_thread.send_command(f"CMD:PWM,{value}\n")
+
+    def open_step_test_window(self) -> None:
+        if not hasattr(self, 'step_test_win') or self.step_test_win is None:
+            self.step_test_win = StepTestWindow(self)
+            self.step_test_win.test_thread.pwm_update_signal.connect(self.pwm_slider.setValue)
+        self.step_test_win.show()
+        self.step_test_win.raise_()
+        self.step_test_win.activateWindow()
 
     def switch_page(self, index: int) -> None:
         self.stacked_widget.setCurrentIndex(index)
