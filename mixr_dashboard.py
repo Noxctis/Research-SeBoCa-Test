@@ -138,6 +138,7 @@ class TelemetryReceiver(QThread):
         super().__init__()
         self.config = config
         self._is_running = True
+        self._sock = None
         self.cmd_queue = queue.Queue()
 
     def send_command(self, cmd_string: str) -> None:
@@ -158,6 +159,8 @@ class TelemetryReceiver(QThread):
         while self._is_running:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    # expose socket so stop() can close it immediately from main thread
+                    self._sock = s
                     # Explicitly bypass Nagle's algorithm. Forces immediate transmission 
                     # of 15-byte micro-packets to eliminate UI-to-hardware TCP buffering latency.
                     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -190,12 +193,13 @@ class TelemetryReceiver(QThread):
                                 if not line.strip(): continue
                                     
                                 try:
-                                    rpm_str, torque_str = line.split(",")
-                                    rpm, torque = float(rpm_str), float(torque_str)
+                                    # Daemon now sends: raw_rpm, filtered_rpm
+                                    raw_rpm_str, filt_rpm_str = line.split(",")
+                                    raw_rpm, filt_rpm = float(raw_rpm_str), float(filt_rpm_str)
 
                                     # MODE 3 HEARTBEAT DETECTION
                                     # C++ daemon pushes exactly -2.0, -2.0 to signal a Simulink takeover.
-                                    if rpm == -2.0 and torque == -2.0:
+                                    if raw_rpm == -2.0 and filt_rpm == -2.0:
                                         if current_mode != 3:
                                             self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
                                             current_mode = 3
@@ -208,7 +212,8 @@ class TelemetryReceiver(QThread):
                                             current_mode = 2
                                             
                                         current_t = time.time() - start_time
-                                        self.new_data_signal.emit(current_t, rpm, torque)
+                                        # Emit timestamp, raw RPM, filtered RPM
+                                        self.new_data_signal.emit(current_t, raw_rpm, filt_rpm)
                                 except ValueError:
                                     pass # Discard malformed packets caused by TCP fragmentation
                                     
@@ -217,7 +222,12 @@ class TelemetryReceiver(QThread):
                             
                     # Make sure final motor-off commands are sent over the wire before closing the socket
                     while not self.cmd_queue.empty():
-                        s.sendall(self.cmd_queue.get().encode('utf-8'))
+                        try:
+                            s.sendall(self.cmd_queue.get().encode('utf-8'))
+                        except Exception:
+                            break
+                    # clear exposed socket reference
+                    self._sock = None
                             
             except Exception:
                 self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
@@ -227,6 +237,50 @@ class TelemetryReceiver(QThread):
                     time.sleep(0.1)
 
     def stop(self) -> None:
+        # Signal the run loop to exit and attempt a best-effort final motor stop
+        self._is_running = False
+
+        # Best-effort: enqueue final motor-off command and try to flush it synchronously
+        try:
+            self.cmd_queue.put_nowait("CMD:PWM,0\n")
+        except Exception:
+            try:
+                self.cmd_queue.put("CMD:PWM,0\n")
+            except Exception:
+                pass
+
+        # If socket exists, try to send queued commands with a short timeout (non-blocking-ish)
+        try:
+            sock = self._sock
+            if sock:
+                # small timeout to avoid blocking UI shutdown
+                try:
+                    sock.settimeout(0.1)
+                except Exception:
+                    pass
+
+                while not self.cmd_queue.empty():
+                    try:
+                        cmd = self.cmd_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        sock.sendall(cmd.encode('utf-8'))
+                    except Exception:
+                        break
+
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Wait for thread to finish
         self.wait()
 
 # ==========================================
@@ -241,7 +295,7 @@ class TelemetryTableModel(QAbstractTableModel):
     """
     def __init__(self, max_rows: int):
         super().__init__()
-        self.headers = ["t (s)", "RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
+        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
         # Deque provides O(1) time complexity for appends and automatic FIFO memory management
         self.dataset: Deque[Tuple[float, ...]] = deque(maxlen=max_rows)
 
@@ -253,8 +307,8 @@ class TelemetryTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
             # Precision formatting based on scientific significance
-            if index.column() in (0, 1, 4): return f"{val:.1f}"
-            if index.column() in (2, 3, 5): return f"{val:.3f}"
+            if index.column() in (0, 1, 2, 5): return f"{val:.1f}"
+            if index.column() in (3, 4, 6): return f"{val:.3f}"
         if role == Qt.ItemDataRole.TextAlignmentRole: return Qt.AlignmentFlag.AlignCenter
         return None
 
@@ -598,7 +652,9 @@ class ThesisDashboard(QMainWindow):
 
         self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.rpm_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
+        # Two traces: raw (noisy) and filtered (smoothed)
+        self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
+        self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
         self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -691,7 +747,7 @@ class ThesisDashboard(QMainWindow):
         self.mode3_title.setText("MATLAB Connected")
         self.mode3_desc.setText("System locked. All process controls and hardware interfaces\nare currently managed directly in MATLAB/Simulink.")
 
-    def process_and_update(self, timestamp: float, rpm: float, torque: float) -> None:
+    def process_and_update(self, timestamp: float, raw_rpm: float, filt_rpm: float) -> None:
         """
         @brief Main logic loop triggered dynamically by network thread packets.
         Calculates fluid dynamics, manages MVC model insertion, and executes graph redraws.
@@ -702,9 +758,13 @@ class ThesisDashboard(QMainWindow):
         mu = self.visc_cb.currentData()
         d_m = self.impeller_cb.currentData()
 
-        power_w, n_re, n_po = FluidCalculations.calculate_metrics(rpm, torque, rho, mu, d_m)
+        # Incoming values: timestamp, raw RPM, EMA-filtered RPM (daemon provides both)
+        # Daemon does not transmit torque in this build, so torque is unavailable.
+        torque_val = 0.0
 
-        self.table_model.add_row((timestamp, rpm, torque, power_w, n_re, n_po))
+        power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
+
+        self.table_model.add_row((timestamp, raw_rpm, filt_rpm, torque_val, power_w, n_re, n_po))
 
         # PREVENT GUI EVENT QUEUE BACKLOG & "NOT RESPONDING" FREEZES
         # We limit the heavy graphing/list comprehensions to ~5 render frames per second. 
@@ -718,16 +778,18 @@ class ThesisDashboard(QMainWindow):
         self._last_render_time = current_sys_time
 
         t_data = self.table_model.get_column_data(0)
-        rpm_data = self.table_model.get_column_data(1)
+        raw_rpm_data = self.table_model.get_column_data(1)
+        filt_rpm_data = self.table_model.get_column_data(2)
         
         # Batch updates for pyqtgraph optimize rendering overhead
-        self.rpm_line.setData(t_data, rpm_data)
-        self.torque_line.setData(t_data, self.table_model.get_column_data(2))
-        self.power_line.setData(t_data, self.table_model.get_column_data(3))
+        self.rpm_raw_line.setData(t_data, raw_rpm_data)
+        self.rpm_filt_line.setData(t_data, filt_rpm_data)
+        self.torque_line.setData(t_data, self.table_model.get_column_data(3))
+        self.power_line.setData(t_data, self.table_model.get_column_data(4))
         
         # Secures log-scaled plot constraints (cannot process 0 or negative numbers)
-        nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(4)]
-        npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
+        nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
+        npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(6)]
         self.npo_scatter.setData(nre_safe, npo_safe)
 
         # ------------------------------------------
@@ -737,10 +799,12 @@ class ThesisDashboard(QMainWindow):
         # Since the hardware daemon strictly transmits telemetry at a decoupled 10Hz, 
         # isolating the last 8 array indices mathematically replicates exactly 0.8s of physical time.
         # This bridges human perception lag, perfectly aligning the visual UI reading with the physical tool.
-        if rpm_data:
-            window_size = min(8, len(rpm_data))
-            rolling_avg = sum(rpm_data[-window_size:]) / window_size
-            self.rpm_plot.setTitle(f"Velocity vs. Time (0.8-Sec Avg: {rolling_avg:.1f} RPM)")
+        if filt_rpm_data or raw_rpm_data:
+            raw_win = min(8, len(raw_rpm_data))
+            filt_win = min(8, len(filt_rpm_data))
+            raw_avg = (sum(raw_rpm_data[-raw_win:]) / raw_win) if raw_win > 0 else 0.0
+            filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
+            self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
 
     def export_data(self) -> None:
         """
@@ -766,11 +830,12 @@ class ThesisDashboard(QMainWindow):
             # 2. Strict MATLAB Workspace Dictionary Translation
             sio.savemat(mat_file, {
                 "time_s": np.array(self.table_model.get_column_data(0)), 
-                "RPM": np.array(self.table_model.get_column_data(1)),
-                "Torque_Nm": np.array(self.table_model.get_column_data(2)), 
-                "Power_W": np.array(self.table_model.get_column_data(3)),
-                "N_Re": np.array(self.table_model.get_column_data(4)), 
-                "N_Po": np.array(self.table_model.get_column_data(5))
+                "Raw_RPM": np.array(self.table_model.get_column_data(1)),
+                "Filtered_RPM": np.array(self.table_model.get_column_data(2)),
+                "Torque_Nm": np.array(self.table_model.get_column_data(3)), 
+                "Power_W": np.array(self.table_model.get_column_data(4)),
+                "N_Re": np.array(self.table_model.get_column_data(5)), 
+                "N_Po": np.array(self.table_model.get_column_data(6))
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
@@ -796,7 +861,8 @@ class ThesisDashboard(QMainWindow):
             
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
-                self.rpm_line.setData([], [])
+                self.rpm_raw_line.setData([], [])
+                self.rpm_filt_line.setData([], [])
                 self.torque_line.setData([], [])
                 self.power_line.setData([], [])
                 self.npo_scatter.setData([], [])
