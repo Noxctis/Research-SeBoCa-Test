@@ -227,7 +227,6 @@ class TelemetryReceiver(QThread):
                     time.sleep(0.1)
 
     def stop(self) -> None:
-        self._is_running = False
         self.wait()
 
 # ==========================================
@@ -296,7 +295,7 @@ class StepTestThread(QThread):
         
         for i, percent in enumerate(steps):
             if not self._is_running: break
-            pwm_val = int((percent / 100.0) * 255)
+            pwm_val = int((percent / 100.0) * 4095)
             self.pwm_update_signal.emit(pwm_val)
             
             for sec in range(step_duration):
@@ -482,12 +481,12 @@ class ThesisDashboard(QMainWindow):
         # Modulated Control Implementation: Slider + Manual SpinBox Sync
         pwm_layout = QHBoxLayout()
         self.pwm_slider = QSlider(Qt.Orientation.Horizontal)
-        self.pwm_slider.setRange(0, 255)
+        self.pwm_slider.setRange(0, 4095)
         self.pwm_slider.setValue(0)
         self.pwm_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
         
         self.pwm_input = QSpinBox()
-        self.pwm_input.setRange(0, 255)
+        self.pwm_input.setRange(0, 4095)
         self.pwm_input.setValue(0)
         self.pwm_input.setStyleSheet("""
             QSpinBox { 
