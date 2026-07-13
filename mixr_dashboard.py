@@ -322,6 +322,15 @@ class TelemetryTableModel(QAbstractTableModel):
         self.dataset.append(row_data)
         self.endInsertRows()
 
+    def add_rows(self, rows_data: List[Tuple[float, ...]]) -> None:
+        """Batched insertion prevents PyQt event loop saturation at high hardware frequencies."""
+        if not rows_data: 
+            return
+        row_idx = len(self.dataset)
+        self.beginInsertRows(QModelIndex(), row_idx, row_idx + len(rows_data) - 1)
+        self.dataset.extend(rows_data)
+        self.endInsertRows()
+
     def clear_data(self) -> None:
         self.beginResetModel()
         self.dataset.clear()
@@ -443,6 +452,11 @@ class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = SystemConfig()
+        
+        # Buffers high-speed network data before pushing to the UI table
+        self.data_buffer = [] 
+        self.hardware_hz = 100  # Must match the C++ daemon's target frequency
+        
         self._setup_ui()
         self._start_network()
 
@@ -748,60 +762,51 @@ class ThesisDashboard(QMainWindow):
         self.mode3_desc.setText("System locked. All process controls and hardware interfaces\nare currently managed directly in MATLAB/Simulink.")
 
     def process_and_update(self, timestamp: float, raw_rpm: float, filt_rpm: float) -> None:
-        """
-        @brief Main logic loop triggered dynamically by network thread packets.
-        Calculates fluid dynamics, manages MVC model insertion, and executes graph redraws.
-        """
         if self.stacked_widget.currentIndex() != 0: return
 
         rho = self.fluid_cb.currentData()
         mu = self.visc_cb.currentData()
         d_m = self.impeller_cb.currentData()
 
-        # Incoming values: timestamp, raw RPM, EMA-filtered RPM (daemon provides both)
-        # Daemon does not transmit torque in this build, so torque is unavailable.
         torque_val = 0.0
-
         power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
 
-        self.table_model.add_row((timestamp, raw_rpm, filt_rpm, torque_val, power_w, n_re, n_po))
+        # 1. Store incoming data in memory buffer instantly (O(1) time complexity)
+        self.data_buffer.append((timestamp, raw_rpm, filt_rpm, torque_val, power_w, n_re, n_po))
 
-        # PREVENT GUI EVENT QUEUE BACKLOG & "NOT RESPONDING" FREEZES
-        # We limit the heavy graphing/list comprehensions to ~5 render frames per second. 
-        # (Data is still safely and accurately appended to your Table and CSV arrays at the full hardware speed).
+        # 2. UI Render Throttle (Locked at 10Hz visual refresh)
         current_sys_time = time.time()
         if not hasattr(self, '_last_render_time'):
             self._last_render_time = 0.0
             
-        if current_sys_time - self._last_render_time < 0.2:
-            return  
+        if current_sys_time - self._last_render_time < 0.1:
+            return 
         self._last_render_time = current_sys_time
 
+        # 3. Flush the accumulated buffer to the UI table in a single Qt operation
+        self.table_model.add_rows(self.data_buffer)
+        self.data_buffer.clear()
+
+        # 4. Extract data arrays for graphing
         t_data = self.table_model.get_column_data(0)
         raw_rpm_data = self.table_model.get_column_data(1)
         filt_rpm_data = self.table_model.get_column_data(2)
         
-        # Batch updates for pyqtgraph optimize rendering overhead
         self.rpm_raw_line.setData(t_data, raw_rpm_data)
         self.rpm_filt_line.setData(t_data, filt_rpm_data)
         self.torque_line.setData(t_data, self.table_model.get_column_data(3))
         self.power_line.setData(t_data, self.table_model.get_column_data(4))
         
-        # Secures log-scaled plot constraints (cannot process 0 or negative numbers)
         nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
         npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(6)]
         self.npo_scatter.setData(nre_safe, npo_safe)
 
-        # ------------------------------------------
-        # 1-SECOND ROLLING AVERAGE (TACHOMETER SYNC)
-        # ------------------------------------------
-        # Handheld optical tachometer internally samples over a 0.8 second window greater than 60 rpm. 
-        # Since the hardware daemon strictly transmits telemetry at a decoupled 10Hz, 
-        # isolating the last 8 array indices mathematically replicates exactly 0.8s of physical time.
-        # This bridges human perception lag, perfectly aligning the visual UI reading with the physical tool.
+        # 5. Dynamic 0.8-second Rolling Average (Tachometer Sync)
+        tach_ticks = int(0.8 * self.hardware_hz)
+        
         if filt_rpm_data or raw_rpm_data:
-            raw_win = min(8, len(raw_rpm_data))
-            filt_win = min(8, len(filt_rpm_data))
+            raw_win = min(tach_ticks, len(raw_rpm_data))
+            filt_win = min(tach_ticks, len(filt_rpm_data))
             raw_avg = (sum(raw_rpm_data[-raw_win:]) / raw_win) if raw_win > 0 else 0.0
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
@@ -861,6 +866,7 @@ class ThesisDashboard(QMainWindow):
             
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
+                self.data_buffer.clear()
                 self.rpm_raw_line.setData([], [])
                 self.rpm_filt_line.setData([], [])
                 self.torque_line.setData([], [])
