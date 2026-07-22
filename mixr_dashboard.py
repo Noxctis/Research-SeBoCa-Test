@@ -155,10 +155,10 @@ class TelemetryReceiver(QThread):
                                 if not line.strip(): continue
                                     
                                 try:
-                                    raw_rpm_str, filt_rpm_str = line.split(",")
-                                    raw_rpm, filt_rpm = float(raw_rpm_str), float(filt_rpm_str)
+                                    raw_rpm_str, filt_rpm_str, revs_str = line.split(",")
+                                    raw_rpm, filt_rpm, revolutions = float(raw_rpm_str), float(filt_rpm_str), int(revs_str)
 
-                                    if raw_rpm == -2.0 and filt_rpm == -2.0:
+                                    if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
                                         if current_mode != 3:
                                             self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
                                             current_mode = 3
@@ -171,8 +171,7 @@ class TelemetryReceiver(QThread):
                                             current_mode = 2
                                             
                                         current_t = time.time() - start_time
-                                        # Thread-safe insertion prevents UI event-loop flooding
-                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm))
+                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions))
                                 except ValueError:
                                     pass 
                                     
@@ -234,7 +233,7 @@ class TelemetryReceiver(QThread):
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self, max_rows: int):
         super().__init__()
-        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Torque", "Power (W)", "N_Re", "N_Po"]
+        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po"]
         self.dataset: Deque[Tuple[float, ...]] = deque(maxlen=max_rows)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int: return len(self.dataset)
@@ -244,8 +243,9 @@ class TelemetryTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
-            if index.column() in (0, 1, 2, 5): return f"{val:.1f}"
-            if index.column() in (3, 4, 6): return f"{val:.3f}"
+            if index.column() in (0, 1, 2, 6): return f"{val:.1f}"
+            if index.column() in (4, 5, 7): return f"{val:.3f}"
+            if index.column() == 3: return f"{int(val)}"
         if role == Qt.ItemDataRole.TextAlignmentRole: return Qt.AlignmentFlag.AlignCenter
         return None
 
@@ -689,10 +689,10 @@ class ThesisDashboard(QMainWindow):
         # Safely extract all pending frames generated since the last timer tick
         while not self.telemetry_queue.empty():
             try:
-                timestamp, raw_rpm, filt_rpm = self.telemetry_queue.get_nowait()
+                timestamp, raw_rpm, filt_rpm, revolutions = self.telemetry_queue.get_nowait()
                 torque_val = 0.0
                 power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
-                batch_data.append((timestamp, raw_rpm, filt_rpm, torque_val, power_w, n_re, n_po))
+                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po))
             except queue.Empty:
                 break
 
@@ -707,11 +707,12 @@ class ThesisDashboard(QMainWindow):
         
         self.rpm_raw_line.setData(t_data, raw_rpm_data)
         self.rpm_filt_line.setData(t_data, filt_rpm_data)
-        self.torque_line.setData(t_data, self.table_model.get_column_data(3))
-        self.power_line.setData(t_data, self.table_model.get_column_data(4))
         
-        nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(5)]
-        npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(6)]
+        self.torque_line.setData(t_data, self.table_model.get_column_data(4))
+        self.power_line.setData(t_data, self.table_model.get_column_data(5))
+        
+        nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(6)]
+        npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(7)]
         self.npo_scatter.setData(nre_safe, npo_safe)
 
         tach_ticks = int(0.8 * self.hardware_hz)
@@ -742,10 +743,11 @@ class ThesisDashboard(QMainWindow):
                 "time_s": np.array(self.table_model.get_column_data(0)), 
                 "Raw_RPM": np.array(self.table_model.get_column_data(1)),
                 "Filtered_RPM": np.array(self.table_model.get_column_data(2)),
-                "Torque_Nm": np.array(self.table_model.get_column_data(3)), 
-                "Power_W": np.array(self.table_model.get_column_data(4)),
-                "N_Re": np.array(self.table_model.get_column_data(5)), 
-                "N_Po": np.array(self.table_model.get_column_data(6))
+                "Revolutions": np.array(self.table_model.get_column_data(3)),
+                "Torque_Nm": np.array(self.table_model.get_column_data(4)), 
+                "Power_W": np.array(self.table_model.get_column_data(5)),
+                "N_Re": np.array(self.table_model.get_column_data(6)), 
+                "N_Po": np.array(self.table_model.get_column_data(7))
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
