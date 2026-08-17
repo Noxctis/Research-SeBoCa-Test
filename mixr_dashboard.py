@@ -3,12 +3,6 @@
 @brief Primary Graphical User Interface (GUI) and Telemetry Client for the MIXR-1 platform.
 @authors Chrys Sean T. Sevilla, Cyril John Christian Calo, Sid Andre Bordario
 @institution University of San Carlos - Computer Engineering Department
-
-@architecture
-Implements a Model-View-Controller (MVC) topology using PyQt6 for the presentation layer 
-and pyqtgraph for hardware-accelerated plotting. Network I/O is decoupled via a dedicated 
-QThread. High-frequency telemetry is managed via a thread-safe Queue and QTimer batching
-to prevent OS event-loop saturation and Alt-Tab freezing.
 """
 
 import os
@@ -53,10 +47,9 @@ import csv
 import logging
 import queue
 import signal
-from collections import deque
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Deque, Any
+from typing import Optional, Tuple, List, Any
 
 import numpy as np
 import scipy.io as sio
@@ -81,6 +74,7 @@ class SystemConfig:
     NETWORK_PORT: int = 5000
     RECONNECT_DELAY_SEC: float = 2.0
     MAX_TABLE_ROWS: int = 100000
+    PLOT_WINDOW_SIZE: int = 3000  # Renders the last 30 seconds (at 100Hz) to prevent GPU/CPU lag
 
 # ==========================================
 # BUSINESS LOGIC (MATH ENGINE)
@@ -209,17 +203,11 @@ class TelemetryReceiver(QThread):
                 while not self.cmd_queue.empty():
                     try:
                         cmd = self.cmd_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    try:
                         sock.sendall(cmd.encode('utf-8'))
-                    except Exception:
+                    except (queue.Empty, Exception):
                         break
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
-                except Exception:
-                    pass
-                try:
                     sock.close()
                 except Exception:
                     pass
@@ -228,13 +216,15 @@ class TelemetryReceiver(QThread):
         self.wait()
 
 # ==========================================
-# MODULE 2: TABLE MODEL
+# MODULE 2: TABLE MODEL (OPTIMIZED)
 # ==========================================
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self, max_rows: int):
         super().__init__()
         self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po"]
-        self.dataset: Deque[Tuple[float, ...]] = deque(maxlen=max_rows)
+        self.max_rows = max_rows
+        # Using a standard list for O(1) random access in the QTableView (eliminates deque lag)
+        self.dataset: List[Tuple[float, ...]] = []
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int: return len(self.dataset)
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int: return len(self.headers)
@@ -261,13 +251,27 @@ class TelemetryTableModel(QAbstractTableModel):
         self.dataset.extend(rows_data)
         self.endInsertRows()
 
+        # Memory Protection: Block-delete oldest data to prevent constant reallocation overhead
+        if len(self.dataset) > self.max_rows + 5000:
+            self.beginRemoveRows(QModelIndex(), 0, 4999)
+            del self.dataset[:5000]
+            self.endRemoveRows()
+
     def clear_data(self) -> None:
         self.beginResetModel()
         self.dataset.clear()
         self.endResetModel()
 
-    def get_column_data(self, col_index: int) -> List[float]:
-        return [row[col_index] for row in self.dataset]
+    def get_plot_columns(self, window_size: int) -> Optional[Tuple]:
+        if not self.dataset:
+            return None
+        # C-speed transposition of the most recent N rows. Solves list comprehension lag.
+        return tuple(zip(*self.dataset[-window_size:]))
+        
+    def get_all_columns(self) -> Optional[Tuple]:
+        if not self.dataset:
+            return None
+        return tuple(zip(*self.dataset))
 
 # ==========================================
 # MODULE 2.5: AUTOMATED STEP TEST
@@ -282,7 +286,6 @@ class StepTestThread(QThread):
         self._is_running = True
         
     def run(self) -> None:
-        # Step from 0 to 2000 RPM in increments of 200 RPM
         steps = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
         step_duration = 10
         total_time = len(steps) * step_duration
@@ -379,10 +382,7 @@ class ThesisDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = SystemConfig()
-        
         self.hardware_hz = 100
-        
-        # Thread-safe queue to ingest data without locking the PyQt UI loop
         self.telemetry_queue = queue.Queue()
         
         self._setup_ui()
@@ -402,9 +402,6 @@ class ThesisDashboard(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # ------------------------------------------
-        # NAVIGATION HEADER
-        # ------------------------------------------
         nav_layout = QHBoxLayout()
         title_container = QVBoxLayout()
         app_title = QLabel("MIXR-1")
@@ -457,9 +454,6 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         left_panel.addWidget(self.status_lbl)
 
-        # ------------------------------------------
-        # EXPERIMENT PARAMETERS (REGION A)
-        # ------------------------------------------
         control_group = QGroupBox("Region A: Experiment Parameters")
         control_layout = QFormLayout()
         
@@ -547,9 +541,6 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        # ------------------------------------------
-        # MVC TABLE DEPLOYMENT
-        # ------------------------------------------
         table_group = QGroupBox("Live Data Log")
         table_layout = QVBoxLayout()
         
@@ -568,9 +559,6 @@ class ThesisDashboard(QMainWindow):
         left_panel.addWidget(table_group)
         page_layout.addLayout(left_panel, stretch=1)
 
-        # ------------------------------------------
-        # HARDWARE ACCELERATED PLOTTING (pyqtgraph)
-        # ------------------------------------------
         pg.setConfigOptions(antialias=True, background='#0d1117', foreground='#c9d1d9')
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
@@ -668,12 +656,7 @@ class ThesisDashboard(QMainWindow):
         self.mode3_desc.setText("System locked. All process controls and hardware interfaces\nare currently managed directly in MATLAB/Simulink.")
 
     def _drain_and_update_ui(self) -> None:
-        """
-        Drains the thread-safe queue on a strict 10Hz timer schedule.
-        Completely eliminates Qt Event Queue flooding when Alt-Tabbed.
-        """
         if self.stacked_widget.currentIndex() != 0:
-            # Clear memory instantly if UI is locked by MATLAB to prevent silent overflow
             while not self.telemetry_queue.empty():
                 try:
                     self.telemetry_queue.get_nowait()
@@ -686,7 +669,6 @@ class ThesisDashboard(QMainWindow):
         mu = self.visc_cb.currentData()
         d_m = self.impeller_cb.currentData()
 
-        # Safely extract all pending frames generated since the last timer tick
         while not self.telemetry_queue.empty():
             try:
                 timestamp, raw_rpm, filt_rpm, revolutions = self.telemetry_queue.get_nowait()
@@ -701,22 +683,26 @@ class ThesisDashboard(QMainWindow):
 
         self.table_model.add_rows(batch_data)
 
-        t_data = self.table_model.get_column_data(0)
-        raw_rpm_data = self.table_model.get_column_data(1)
-        filt_rpm_data = self.table_model.get_column_data(2)
+        # Plot Optimization: Fetch ONLY the last N seconds (PLOT_WINDOW_SIZE) to render.
+        # This keeps rendering load completely flat no matter how long the experiment runs.
+        plot_data = self.table_model.get_plot_columns(self.config.PLOT_WINDOW_SIZE)
+        if not plot_data:
+            return
+
+        t_data = plot_data[0]
+        raw_rpm_data = plot_data[1]
+        filt_rpm_data = plot_data[2]
         
         self.rpm_raw_line.setData(t_data, raw_rpm_data)
         self.rpm_filt_line.setData(t_data, filt_rpm_data)
+        self.torque_line.setData(t_data, plot_data[4])
+        self.power_line.setData(t_data, plot_data[5])
         
-        self.torque_line.setData(t_data, self.table_model.get_column_data(4))
-        self.power_line.setData(t_data, self.table_model.get_column_data(5))
-        
-        nre_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(6)]
-        npo_safe = [max(x, 1e-5) for x in self.table_model.get_column_data(7)]
+        nre_safe = [max(x, 1e-5) for x in plot_data[6]]
+        npo_safe = [max(x, 1e-5) for x in plot_data[7]]
         self.npo_scatter.setData(nre_safe, npo_safe)
 
         tach_ticks = int(0.8 * self.hardware_hz)
-        
         if filt_rpm_data or raw_rpm_data:
             raw_win = min(tach_ticks, len(raw_rpm_data))
             filt_win = min(tach_ticks, len(filt_rpm_data))
@@ -729,6 +715,9 @@ class ThesisDashboard(QMainWindow):
             QMessageBox.warning(self, "Export Failed", "No telemetry data collected yet.")
             return
 
+        full_data = self.table_model.get_all_columns()
+        if not full_data: return
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
 
@@ -740,14 +729,14 @@ class ThesisDashboard(QMainWindow):
                     writer.writerow(row)
 
             sio.savemat(mat_file, {
-                "time_s": np.array(self.table_model.get_column_data(0)), 
-                "Raw_RPM": np.array(self.table_model.get_column_data(1)),
-                "Filtered_RPM": np.array(self.table_model.get_column_data(2)),
-                "Revolutions": np.array(self.table_model.get_column_data(3)),
-                "Torque_Nm": np.array(self.table_model.get_column_data(4)), 
-                "Power_W": np.array(self.table_model.get_column_data(5)),
-                "N_Re": np.array(self.table_model.get_column_data(6)), 
-                "N_Po": np.array(self.table_model.get_column_data(7))
+                "time_s": np.array(full_data[0]), 
+                "Raw_RPM": np.array(full_data[1]),
+                "Filtered_RPM": np.array(full_data[2]),
+                "Revolutions": np.array(full_data[3]),
+                "Torque_Nm": np.array(full_data[4]), 
+                "Power_W": np.array(full_data[5]),
+                "N_Re": np.array(full_data[6]), 
+                "N_Po": np.array(full_data[7])
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
