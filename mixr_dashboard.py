@@ -194,7 +194,7 @@ class TelemetryReceiver(QThread):
     def stop(self) -> None:
         self._is_running = False
         try:
-            self.cmd_queue.put_nowait("CMD:PWM,0\n")
+            self.cmd_queue.put_nowait("CMD:RPM,0\n")
         except Exception:
             pass
 
@@ -273,7 +273,7 @@ class TelemetryTableModel(QAbstractTableModel):
 # MODULE 2.5: AUTOMATED STEP TEST
 # ==========================================
 class StepTestThread(QThread):
-    pwm_update_signal = pyqtSignal(int)
+    rpm_update_signal = pyqtSignal(int)
     progress_signal = pyqtSignal(str, int)
     finished_signal = pyqtSignal()
     
@@ -282,27 +282,27 @@ class StepTestThread(QThread):
         self._is_running = True
         
     def run(self) -> None:
-        steps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        # Step from 0 to 2000 RPM in increments of 200 RPM
+        steps = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
         step_duration = 10
         total_time = len(steps) * step_duration
         
-        for i, percent in enumerate(steps):
+        for i, target_rpm in enumerate(steps):
             if not self._is_running: break
-            pwm_val = int((percent / 100.0) * 4095)
-            self.pwm_update_signal.emit(pwm_val)
+            self.rpm_update_signal.emit(target_rpm)
             
             for sec in range(step_duration):
                 if not self._is_running: break
                 elapsed = (i * step_duration) + sec
                 overall_progress = int((elapsed / total_time) * 100)
-                self.progress_signal.emit(f"Running {percent}% PWM... ({sec}/{step_duration}s)", overall_progress)
+                self.progress_signal.emit(f"Running at {target_rpm} RPM... ({sec}/{step_duration}s)", overall_progress)
                 time.sleep(1)
                 
         if self._is_running:
-            self.pwm_update_signal.emit(0)
+            self.rpm_update_signal.emit(0)
             self.progress_signal.emit("Test Complete. Motor stopped.", 100)
         else:
-            self.pwm_update_signal.emit(0)
+            self.rpm_update_signal.emit(0)
             self.progress_signal.emit("Test Aborted. Motor stopped.", 0)
             
         self.finished_signal.emit()
@@ -320,7 +320,7 @@ class StepTestWindow(QDialog):
         
         layout = QVBoxLayout(self)
         
-        self.status_lbl = QLabel("Ready to start step test (0% to 100% PWM, 10s each)")
+        self.status_lbl = QLabel("Ready to start step test (0 to 2000 RPM, 10s each)")
         self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self.status_lbl)
@@ -477,16 +477,16 @@ class ThesisDashboard(QMainWindow):
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.setStyleSheet(combo_style)
 
-        pwm_layout = QHBoxLayout()
-        self.pwm_slider = QSlider(Qt.Orientation.Horizontal)
-        self.pwm_slider.setRange(0, 4095)
-        self.pwm_slider.setValue(0)
-        self.pwm_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
+        rpm_layout = QHBoxLayout()
+        self.rpm_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rpm_slider.setRange(0, 2500)
+        self.rpm_slider.setValue(0)
+        self.rpm_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
         
-        self.pwm_input = QSpinBox()
-        self.pwm_input.setRange(0, 4095)
-        self.pwm_input.setValue(0)
-        self.pwm_input.setStyleSheet("""
+        self.rpm_input = QSpinBox()
+        self.rpm_input.setRange(0, 2500)
+        self.rpm_input.setValue(0)
+        self.rpm_input.setStyleSheet("""
             QSpinBox { 
                 background-color: #21262d; 
                 color: #58a6ff; 
@@ -521,17 +521,17 @@ class ThesisDashboard(QMainWindow):
             QSpinBox::down-arrow:pressed { border-top-color: #0d1117; }
         """)
         
-        self.pwm_slider.valueChanged.connect(self.pwm_input.setValue)
-        self.pwm_input.valueChanged.connect(self.pwm_slider.setValue)
-        self.pwm_slider.valueChanged.connect(self._on_pwm_changed)
+        self.rpm_slider.valueChanged.connect(self.rpm_input.setValue)
+        self.rpm_input.valueChanged.connect(self.rpm_slider.setValue)
+        self.rpm_slider.valueChanged.connect(self._on_rpm_changed)
         
-        pwm_layout.addWidget(self.pwm_slider, stretch=4)
-        pwm_layout.addWidget(self.pwm_input, stretch=1)
+        rpm_layout.addWidget(self.rpm_slider, stretch=4)
+        rpm_layout.addWidget(self.rpm_input, stretch=1)
 
         control_layout.addRow("Density (ρ):", self.fluid_cb)
         control_layout.addRow("Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Diameter (D):", self.impeller_cb)
-        control_layout.addRow("Hardware PWM:", pwm_layout)
+        control_layout.addRow("Target Speed (RPM):", rpm_layout)
         
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
@@ -638,14 +638,14 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.status_signal.connect(self.update_status)
         self.network_thread.start()
 
-    def _on_pwm_changed(self, value: int) -> None:
+    def _on_rpm_changed(self, value: int) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
-            self.network_thread.send_command(f"CMD:PWM,{value}\n")
+            self.network_thread.send_command(f"CMD:RPM,{value}\n")
 
     def open_step_test_window(self) -> None:
         if not hasattr(self, 'step_test_win') or self.step_test_win is None:
             self.step_test_win = StepTestWindow(self)
-            self.step_test_win.test_thread.pwm_update_signal.connect(self.pwm_slider.setValue)
+            self.step_test_win.test_thread.rpm_update_signal.connect(self.rpm_slider.setValue)
         self.step_test_win.show()
         self.step_test_win.raise_()
         self.step_test_win.activateWindow()
@@ -760,14 +760,14 @@ class ThesisDashboard(QMainWindow):
         if "MATLAB Mode 3 Active" in msg:
             self.set_mode3_active()
             self.switch_page(1)
-            self.pwm_slider.setEnabled(False)
-            self.pwm_input.setEnabled(False)
+            self.rpm_slider.setEnabled(False)
+            self.rpm_input.setEnabled(False)
 
         if "Mode 2 Active" in msg:
             self.set_mode3_waiting()
             self.switch_page(0)
-            self.pwm_slider.setEnabled(True)
-            self.pwm_input.setEnabled(True)
+            self.rpm_slider.setEnabled(True)
+            self.rpm_input.setEnabled(True)
             
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
@@ -787,7 +787,7 @@ class ThesisDashboard(QMainWindow):
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
-            self.network_thread.send_command("CMD:PWM,0\n")
+            self.network_thread.send_command("CMD:RPM,0\n")
         self.network_thread.stop()
         if a0 is not None:
             a0.accept()
