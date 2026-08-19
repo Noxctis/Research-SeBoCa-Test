@@ -1,91 +1,125 @@
 """
 analyze_step.py
-Purpose: Parses step response data, fits a first-order transfer function, 
-and generates metrics for PI controller tuning.
+Purpose: Universal Step Response Analyzer for MIXR-1 Bisection Testing.
+Automatically calculates IMC tuning parameters and appends to a master table.
 """
 import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
+import glob
+import sys
+import os
 
-# 1. Load Data
+# 1. File Selection Interface
+csv_files = glob.glob("step_response_*.csv")
+if not csv_files:
+    print("Error: No 'step_response_X_Y.csv' files found in this directory.")
+    sys.exit(1)
+
+print("========================================")
+print(" SELECT DATASET TO ANALYZE ")
+print("========================================")
+for i, f in enumerate(csv_files):
+    print(f"[{i+1}] {f}")
+
 try:
-    df = pd.read_csv("step_response_data.csv")
-except FileNotFoundError:
-    print("Error: 'step_response_data.csv' not found. Run the C++ logger first.")
-    exit(1)
+    choice = int(input("\nEnter file number: ")) - 1
+    if choice < 0 or choice >= len(csv_files): raise ValueError
+    selected_file = csv_files[choice]
+except ValueError:
+    print("Invalid selection.")
+    sys.exit(1)
 
-# 2. Filter and Shift Data
-# Isolate the data after the 1-second baseline
+# Extract percentages for labeling
+file_parts = selected_file.replace(".csv", "").split("_")
+base_pct = file_parts[-2]
+step_pct = file_parts[-1]
+test_name = f"{base_pct}% to {step_pct}%"
+
+# 2. Load and Shift Data
+df = pd.read_csv(selected_file)
+baseline_data = df[df['Time_s'] < 1.0]
 step_data = df[df['Time_s'] >= 1.0].copy()
-# Shift time so the step mathematically starts at t = 0
-step_data['Time_s'] = step_data['Time_s'] - 1.0 
 
+baseline_rpm = baseline_data['Raw_RPM'].mean() if not baseline_data.empty else 0.0
+
+step_data['Time_s'] = step_data['Time_s'] - 1.0 
 t = step_data['Time_s'].values
 rpm = step_data['Raw_RPM'].values
 
-# 3. Define Transfer Function: RPM(t) = K * (1 - e^(-A * t))
+# 3. Curve Fitting
 def first_order_step(t, K, A):
-    return K * (1 - np.exp(-A * t))
+    return baseline_rpm + K * (1 - np.exp(-A * t))
 
-# 4. Perform Least-Squares Curve Fit
-# Provide initial guesses to help the solver: 
-# K = max RPM reached, A = 5.0 (arbitrary positive pole)
-p0 = [np.max(rpm), 5.0]
+p0 = [np.max(rpm) - baseline_rpm, 5.0]
 
 try:
     popt, pcov = curve_fit(first_order_step, t, rpm, p0=p0)
     K_fit = popt[0]
     A_fit = popt[1]
 except RuntimeError:
-    print("Error: Curve fit failed to converge. Check if your data is extremely noisy or flat.")
-    exit(1)
+    print("Error: Curve fit failed to converge.")
+    sys.exit(1)
 
-# 5. Calculate System Metrics
-rise_time = 4.0 / A_fit
-time_constant = 1.0 / A_fit
-frequency = 1.0 / rise_time
-min_sample_rate = frequency * 10.0
+# 4. Math Engine (Control Theory & IMC Tuning)
+settling_time_2pct = 4.0 / A_fit          
+rise_time_10_90 = 2.197 / A_fit           
+bandwidth_hz = A_fit / (2 * np.pi)        
 
-# 6. Console Output for Thesis
-print("\n" + "="*40)
-print(" TRANSFER FUNCTION METRICS ")
-print("="*40)
-print(f"System Equation: RPM(t) = {K_fit:.2f} * (1 - e^(-{A_fit:.2f}t))")
-print(f"Steady-State Gain (K):    {K_fit:.2f} RPM")
+# IMC PI Calculation
+delta_pwm = (int(step_pct) - int(base_pct)) / 100.0 * 4095
+K_plant = K_fit / delta_pwm
+Kp_calc = 1.0 / K_plant
+Ki_calc = Kp_calc * A_fit
+
+# 5. Output Results
+print("\n" + "="*50)
+print(f" METRICS FOR {test_name} STEP TEST ")
+print("="*50)
+print(f"Steady-State Gain (K):    {K_fit:.2f} RPM (Delta)")
 print(f"System Pole (A):          {A_fit:.2f}")
-print(f"Time Constant (Tau):      {time_constant:.4f} seconds")
-print(f"Rise Time (4/A):          {rise_time:.4f} seconds")
-print(f"Signal Frequency:         {frequency:.2f} Hz")
-print(f"Minimum Sampling Rate:    {min_sample_rate:.2f} Hz")
-print("="*40)
+print(f"Rise Time (10% to 90%):   {rise_time_10_90:.4f} seconds")
+print(f"Settling Time (2% error): {settling_time_2pct:.4f} seconds")
+print(f"Mechanical Bandwidth:     {bandwidth_hz:.2f} Hz")
+print("-" * 50)
+print(" REQUIRED PI PARAMETERS (IMC CRITICALLY DAMPED) ")
+print("-" * 50)
+print(f"Plant Gain (K_plant):     {K_plant:.4f} RPM/PWM")
+print(f"Proportional Gain (Kp):   {Kp_calc:.4f}")
+print(f"Integral Gain (Ki):       {Ki_calc:.4f}")
+print("="*50)
 
-if min_sample_rate <= 100.0:
-    print("\n[CONCLUSION] Your 100Hz C++ control loop is scientifically validated as FAST ENOUGH.\n")
-else:
-    print(f"\n[CONCLUSION] You must increase your C++ loop speed to > {min_sample_rate:.2f} Hz.\n")
+# 6. Export to Master Tuning Table
+master_file = "tuning_table.csv"
+file_exists = os.path.isfile(master_file)
+
+with open(master_file, 'a') as f:
+    if not file_exists:
+        f.write("Test_Region,Baseline_RPM,Pole_A,Rise_Time_s,Settling_Time_s,Bandwidth_Hz,Kp,Ki\n")
+    f.write(f"{test_name},{baseline_rpm:.2f},{A_fit:.4f},{rise_time_10_90:.4f},{settling_time_2pct:.4f},{bandwidth_hz:.4f},{Kp_calc:.4f},{Ki_calc:.4f}\n")
+    
+print(f"\n[SUCCESS] Parameters appended to '{master_file}'")
 
 # 7. Generate Thesis Plot
 plt.figure(figsize=(10, 6))
-
-# Plot raw data
 plt.scatter(t, rpm, s=10, color='lightgray', label='Raw C++ Data (100Hz)')
-
-# Plot fitted curve
 plt.plot(t, first_order_step(t, K_fit, A_fit), 'r-', linewidth=2, 
-         label=f'Fitted Curve: {K_fit:.1f}(1 - e^{{-{A_fit:.2f}t}})')
+         label=f'Fitted G(s): K={K_fit:.1f}, A={A_fit:.2f}')
 
-# Plot Rise Time line
-plt.axvline(x=rise_time, color='blue', linestyle='--', alpha=0.7, 
-            label=f'Rise Time ({rise_time:.3f}s)')
+plt.axvline(x=rise_time_10_90, color='orange', linestyle='--', alpha=0.7, 
+            label=f'Rise Time ({rise_time_10_90:.3f}s)')
+plt.axvline(x=settling_time_2pct, color='blue', linestyle='--', alpha=0.7, 
+            label=f'Settling Time ({settling_time_2pct:.3f}s)')
 
-plt.title('Motor Step Response (10% PWM) - OS-10L with AMT102-V')
+plt.title(f'Fluid Load Step Response ({test_name} PWM)')
 plt.xlabel('Time (seconds)')
 plt.ylabel('Rotational Speed (RPM)')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.7)
 plt.tight_layout()
 
-# Save and show
-plt.savefig("thesis_step_response.png", dpi=300)
+plot_filename = f"plot_{base_pct}_{step_pct}.png"
+plt.savefig(plot_filename, dpi=300)
+print(f"[SUCCESS] Plot saved as '{plot_filename}'")
 plt.show()
