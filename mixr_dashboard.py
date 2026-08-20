@@ -133,6 +133,7 @@ class TelemetryReceiver(QThread):
                     buffer = ""
                     start_time = None
                     current_mode = 2 
+                    packet_count = 0  # Reconstructs strict 100Hz timing, bypassing network jitter
                     
                     while self._is_running:
                         while not self.cmd_queue.empty():
@@ -161,10 +162,13 @@ class TelemetryReceiver(QThread):
                                     else:
                                         if current_mode != 2 or start_time is None:
                                             self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
-                                            start_time = time.time()
+                                            start_time = True
+                                            packet_count = 0
                                             current_mode = 2
                                             
-                                        current_t = time.time() - start_time
+                                        # Deterministic timing calculation based on backend's strict 100Hz rate
+                                        current_t = packet_count * 0.01
+                                        packet_count += 1
                                         self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions))
                                 except ValueError:
                                     pass 
@@ -233,7 +237,7 @@ class TelemetryTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
-            if index.column() in (0, 1, 2, 6): return f"{val:.1f}"
+            if index.column() in (0, 1, 2, 6): return f"{val:.2f}"
             if index.column() in (4, 5, 7): return f"{val:.3f}"
             if index.column() == 3: return f"{int(val)}"
         if role == Qt.ItemDataRole.TextAlignmentRole: return Qt.AlignmentFlag.AlignCenter
