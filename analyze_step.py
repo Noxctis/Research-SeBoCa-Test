@@ -112,7 +112,7 @@ plt.axvline(x=rise_time_10_90, color='orange', linestyle='--', alpha=0.7,
 plt.axvline(x=settling_time_2pct, color='blue', linestyle='--', alpha=0.7, 
             label=f'Settling Time ({settling_time_2pct:.3f}s)')
 
-plt.title(f'Fluid Load Step Response ({test_name} PWM)')
+plt.title(f'Motor Step Response ({test_name} PWM)')
 plt.xlabel('Time (seconds)')
 plt.ylabel('Rotational Speed (RPM)')
 plt.legend()
