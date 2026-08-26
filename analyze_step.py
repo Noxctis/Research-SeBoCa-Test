@@ -59,7 +59,7 @@ def infer_step_config(file_path):
 
 
 # 1. File Selection Interface
-csv_files = glob.glob("step_response_*.csv")
+csv_files = glob.glob("water_raw_fifo_*.csv")
 if not csv_files:
     print("Error: No 'step_response_X_Y.csv' files found in this directory.")
     sys.exit(1)
