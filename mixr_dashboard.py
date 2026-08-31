@@ -74,7 +74,7 @@ class SystemConfig:
     NETWORK_PORT: int = 5000
     RECONNECT_DELAY_SEC: float = 2.0
     MAX_TABLE_ROWS: int = 100000
-    PLOT_WINDOW_SIZE: int = 3000  # Renders the last 30 seconds (at 100Hz) to prevent GPU/CPU lag
+    PLOT_WINDOW_SIZE: int = 3000
 
 # ==========================================
 # BUSINESS LOGIC (MATH ENGINE)
@@ -133,7 +133,7 @@ class TelemetryReceiver(QThread):
                     buffer = ""
                     start_time = None
                     current_mode = 2 
-                    packet_count = 0  # Reconstructs strict 100Hz timing, bypassing network jitter
+                    packet_count = 0  
                     
                     while self._is_running:
                         while not self.cmd_queue.empty():
@@ -166,7 +166,6 @@ class TelemetryReceiver(QThread):
                                             packet_count = 0
                                             current_mode = 2
                                             
-                                        # Deterministic timing calculation based on backend's strict 100Hz rate
                                         current_t = packet_count * 0.01
                                         packet_count += 1
                                         self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions))
@@ -227,7 +226,6 @@ class TelemetryTableModel(QAbstractTableModel):
         super().__init__()
         self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po"]
         self.max_rows = max_rows
-        # Using a standard list for O(1) random access in the QTableView (eliminates deque lag)
         self.dataset: List[Tuple[float, ...]] = []
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int: return len(self.dataset)
@@ -248,14 +246,12 @@ class TelemetryTableModel(QAbstractTableModel):
         return None
 
     def add_rows(self, rows_data: List[Tuple[float, ...]]) -> None:
-        if not rows_data: 
-            return
+        if not rows_data: return
         row_idx = len(self.dataset)
         self.beginInsertRows(QModelIndex(), row_idx, row_idx + len(rows_data) - 1)
         self.dataset.extend(rows_data)
         self.endInsertRows()
 
-        # Memory Protection: Block-delete oldest data to prevent constant reallocation overhead
         if len(self.dataset) > self.max_rows + 5000:
             self.beginRemoveRows(QModelIndex(), 0, 4999)
             del self.dataset[:5000]
@@ -267,49 +263,53 @@ class TelemetryTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def get_plot_columns(self, window_size: int) -> Optional[Tuple]:
-        if not self.dataset:
-            return None
-        # C-speed transposition of the most recent N rows. Solves list comprehension lag.
+        if not self.dataset: return None
         return tuple(zip(*self.dataset[-window_size:]))
         
     def get_all_columns(self) -> Optional[Tuple]:
-        if not self.dataset:
-            return None
+        if not self.dataset: return None
         return tuple(zip(*self.dataset))
 
 # ==========================================
 # MODULE 2.5: AUTOMATED STEP TEST
 # ==========================================
 class StepTestThread(QThread):
-    rpm_update_signal = pyqtSignal(int)
+    target_update_signal = pyqtSignal(int)
     progress_signal = pyqtSignal(str, int)
     finished_signal = pyqtSignal()
     
     def __init__(self):
         super().__init__()
         self._is_running = True
+        self.mode = 0  # 0 for RPM, 1 for PWM
         
     def run(self) -> None:
-        steps = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
+        if self.mode == 0:
+            steps = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1500]
+            unit = "RPM"
+        else:
+            steps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+            unit = "%"
+            
         step_duration = 10
         total_time = len(steps) * step_duration
         
-        for i, target_rpm in enumerate(steps):
+        for i, target_val in enumerate(steps):
             if not self._is_running: break
-            self.rpm_update_signal.emit(target_rpm)
+            self.target_update_signal.emit(target_val)
             
             for sec in range(step_duration):
                 if not self._is_running: break
                 elapsed = (i * step_duration) + sec
                 overall_progress = int((elapsed / total_time) * 100)
-                self.progress_signal.emit(f"Running at {target_rpm} RPM... ({sec}/{step_duration}s)", overall_progress)
+                self.progress_signal.emit(f"Running at {target_val} {unit}... ({sec}/{step_duration}s)", overall_progress)
                 time.sleep(1)
                 
         if self._is_running:
-            self.rpm_update_signal.emit(0)
+            self.target_update_signal.emit(0)
             self.progress_signal.emit("Test Complete. Motor stopped.", 100)
         else:
-            self.rpm_update_signal.emit(0)
+            self.target_update_signal.emit(0)
             self.progress_signal.emit("Test Aborted. Motor stopped.", 0)
             
         self.finished_signal.emit()
@@ -319,15 +319,18 @@ class StepTestThread(QThread):
         self.wait()
 
 class StepTestWindow(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, mode: int, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Automated Step Test")
+        self.mode = mode
+        unit = "RPM" if mode == 0 else "% PWM"
+        
+        self.setWindowTitle(f"Automated Step Test ({unit})")
         self.setFixedSize(400, 200)
         self.setStyleSheet("background-color: #161b22; color: #c9d1d9;")
         
         layout = QVBoxLayout(self)
         
-        self.status_lbl = QLabel("Ready to start step test (0 to 2000 RPM, 10s each)")
+        self.status_lbl = QLabel(f"Ready to start step test in {unit}")
         self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self.status_lbl)
@@ -348,6 +351,7 @@ class StepTestWindow(QDialog):
         layout.addWidget(self.btn_stop)
         
         self.test_thread = StepTestThread()
+        self.test_thread.mode = self.mode
         self.test_thread.progress_signal.connect(self.update_progress)
         self.test_thread.finished_signal.connect(self.test_finished)
         
@@ -392,7 +396,6 @@ class ThesisDashboard(QMainWindow):
         self._setup_ui()
         self._start_network()
 
-        # Strict 10Hz UI render clock
         self.ui_update_timer = QTimer(self)
         self.ui_update_timer.timeout.connect(self._drain_and_update_ui)
         self.ui_update_timer.start(100)
@@ -462,6 +465,13 @@ class ThesisDashboard(QMainWindow):
         control_layout = QFormLayout()
         
         combo_style = "QComboBox { background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 4px; }"
+        
+        self.control_mode_cb = QComboBox()
+        self.control_mode_cb.addItem("Closed-Loop (Target RPM)")
+        self.control_mode_cb.addItem("Open-Loop (Target PWM %)")
+        self.control_mode_cb.setStyleSheet(combo_style)
+        self.control_mode_cb.currentIndexChanged.connect(self._on_control_mode_changed)
+        
         self.fluid_cb = QComboBox()
         self.fluid_cb.addItem("Water (20°C)", userData=998.0) 
         self.fluid_cb.setStyleSheet(combo_style)
@@ -475,16 +485,16 @@ class ThesisDashboard(QMainWindow):
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.setStyleSheet(combo_style)
 
-        rpm_layout = QHBoxLayout()
-        self.rpm_slider = QSlider(Qt.Orientation.Horizontal)
-        self.rpm_slider.setRange(0, 2500)
-        self.rpm_slider.setValue(0)
-        self.rpm_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
+        target_layout = QHBoxLayout()
+        self.target_slider = QSlider(Qt.Orientation.Horizontal)
+        self.target_slider.setRange(0, 2500)
+        self.target_slider.setValue(0)
+        self.target_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
         
-        self.rpm_input = QSpinBox()
-        self.rpm_input.setRange(0, 2500)
-        self.rpm_input.setValue(0)
-        self.rpm_input.setStyleSheet("""
+        self.target_input = QSpinBox()
+        self.target_input.setRange(0, 2500)
+        self.target_input.setValue(0)
+        self.target_input.setStyleSheet("""
             QSpinBox { 
                 background-color: #21262d; 
                 color: #58a6ff; 
@@ -519,17 +529,20 @@ class ThesisDashboard(QMainWindow):
             QSpinBox::down-arrow:pressed { border-top-color: #0d1117; }
         """)
         
-        self.rpm_slider.valueChanged.connect(self.rpm_input.setValue)
-        self.rpm_input.valueChanged.connect(self.rpm_slider.setValue)
-        self.rpm_slider.valueChanged.connect(self._on_rpm_changed)
+        self.target_slider.valueChanged.connect(self.target_input.setValue)
+        self.target_input.valueChanged.connect(self.target_slider.setValue)
+        self.target_slider.valueChanged.connect(self._on_target_changed)
         
-        rpm_layout.addWidget(self.rpm_slider, stretch=4)
-        rpm_layout.addWidget(self.rpm_input, stretch=1)
+        target_layout.addWidget(self.target_slider, stretch=4)
+        target_layout.addWidget(self.target_input, stretch=1)
 
+        control_layout.addRow("Control Mode:", self.control_mode_cb)
         control_layout.addRow("Density (ρ):", self.fluid_cb)
         control_layout.addRow("Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Diameter (D):", self.impeller_cb)
-        control_layout.addRow("Target Speed (RPM):", rpm_layout)
+        
+        self.target_lbl = QLabel("Target Speed (RPM):")
+        control_layout.addRow(self.target_lbl, target_layout)
         
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
         self.btn_export.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 10px; }")
@@ -567,20 +580,20 @@ class ThesisDashboard(QMainWindow):
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
 
-        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore  
+        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore  
+        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
-        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore  
+        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
-        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore  
+        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
@@ -630,14 +643,40 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.status_signal.connect(self.update_status)
         self.network_thread.start()
 
-    def _on_rpm_changed(self, value: int) -> None:
+    def _on_control_mode_changed(self, index: int) -> None:
+        self.target_slider.blockSignals(True)
+        self.target_input.blockSignals(True)
+        
+        if index == 0:
+            self.target_lbl.setText("Target Speed (RPM):")
+            self.target_slider.setRange(0, 2500)
+            self.target_input.setRange(0, 2500)
+        else:
+            self.target_lbl.setText("Target Duty Cycle (%):")
+            self.target_slider.setRange(0, 100)
+            self.target_input.setRange(0, 100)
+            
+        self.target_slider.setValue(0)
+        self.target_input.setValue(0)
+        
+        self.target_slider.blockSignals(False)
+        self.target_input.blockSignals(False)
+        
+        self._on_target_changed(0)
+
+    def _on_target_changed(self, value: int) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
-            self.network_thread.send_command(f"CMD:RPM,{value}\n")
+            mode = self.control_mode_cb.currentIndex()
+            if mode == 0:
+                self.network_thread.send_command(f"CMD:RPM,{value}\n")
+            else:
+                self.network_thread.send_command(f"CMD:PWM,{value}\n")
 
     def open_step_test_window(self) -> None:
-        if not hasattr(self, 'step_test_win') or self.step_test_win is None:
-            self.step_test_win = StepTestWindow(self)
-            self.step_test_win.test_thread.rpm_update_signal.connect(self.rpm_slider.setValue)
+        mode = self.control_mode_cb.currentIndex()
+        if not hasattr(self, 'step_test_win') or self.step_test_win is None or self.step_test_win.mode != mode:
+            self.step_test_win = StepTestWindow(mode, self)
+            self.step_test_win.test_thread.target_update_signal.connect(self.target_slider.setValue)
         self.step_test_win.show()
         self.step_test_win.raise_()
         self.step_test_win.activateWindow()
@@ -687,8 +726,6 @@ class ThesisDashboard(QMainWindow):
 
         self.table_model.add_rows(batch_data)
 
-        # Plot Optimization: Fetch ONLY the last N seconds (PLOT_WINDOW_SIZE) to render.
-        # This keeps rendering load completely flat no matter how long the experiment runs.
         plot_data = self.table_model.get_plot_columns(self.config.PLOT_WINDOW_SIZE)
         if not plot_data:
             return
@@ -753,14 +790,16 @@ class ThesisDashboard(QMainWindow):
         if "MATLAB Mode 3 Active" in msg:
             self.set_mode3_active()
             self.switch_page(1)
-            self.rpm_slider.setEnabled(False)
-            self.rpm_input.setEnabled(False)
+            self.target_slider.setEnabled(False)
+            self.target_input.setEnabled(False)
+            self.control_mode_cb.setEnabled(False)
 
         if "Mode 2 Active" in msg:
             self.set_mode3_waiting()
             self.switch_page(0)
-            self.rpm_slider.setEnabled(True)
-            self.rpm_input.setEnabled(True)
+            self.target_slider.setEnabled(True)
+            self.target_input.setEnabled(True)
+            self.control_mode_cb.setEnabled(True)
             
             if self.table_model.rowCount() > 0:
                 self.table_model.clear_data()
