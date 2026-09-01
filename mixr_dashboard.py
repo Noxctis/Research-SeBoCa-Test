@@ -109,6 +109,11 @@ class TelemetryReceiver(QThread):
         self._is_running = True
         self._sock = None
         self.cmd_queue = queue.Queue()
+        self._reset_flag = False  # <--- NEW
+
+    def reset_time(self) -> None:
+        """Flags the thread to reset the packet counter on the next loop."""
+        self._reset_flag = True
 
     def send_command(self, cmd_string: str) -> None:
         while not self.cmd_queue.empty():
@@ -136,6 +141,12 @@ class TelemetryReceiver(QThread):
                     packet_count = 0  
                     
                     while self._is_running:
+                        # --- NEW: Reset time if flagged by UI ---
+                        if self._reset_flag:
+                            packet_count = 0
+                            self._reset_flag = False
+                        # ----------------------------------------
+
                         while not self.cmd_queue.empty():
                             outbound = self.cmd_queue.get()
                             s.sendall(outbound.encode('utf-8'))
