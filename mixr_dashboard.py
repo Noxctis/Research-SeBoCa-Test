@@ -109,10 +109,9 @@ class TelemetryReceiver(QThread):
         self._is_running = True
         self._sock = None
         self.cmd_queue = queue.Queue()
-        self._reset_flag = False  # <--- NEW
+        self._reset_flag = False
 
     def reset_time(self) -> None:
-        """Flags the thread to reset the packet counter on the next loop."""
         self._reset_flag = True
 
     def send_command(self, cmd_string: str) -> None:
@@ -141,11 +140,9 @@ class TelemetryReceiver(QThread):
                     packet_count = 0  
                     
                     while self._is_running:
-                        # --- NEW: Reset time if flagged by UI ---
                         if self._reset_flag:
                             packet_count = 0
                             self._reset_flag = False
-                        # ----------------------------------------
 
                         while not self.cmd_queue.empty():
                             outbound = self.cmd_queue.get()
@@ -330,6 +327,8 @@ class StepTestThread(QThread):
         self.wait()
 
 class StepTestWindow(QDialog):
+    test_started_signal = pyqtSignal()
+
     def __init__(self, mode: int, parent=None):
         super().__init__(parent)
         self.mode = mode
@@ -372,6 +371,7 @@ class StepTestWindow(QDialog):
     def start_test(self):
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
+        self.test_started_signal.emit()
         self.test_thread._is_running = True
         self.test_thread.start()
         
@@ -563,8 +563,13 @@ class ThesisDashboard(QMainWindow):
         self.btn_step_test.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
         self.btn_step_test.clicked.connect(self.open_step_test_window)
 
+        self.btn_reset = QPushButton("Reset Data Log (t=0)")
+        self.btn_reset.setStyleSheet("QPushButton { background-color: #d29922; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
+        self.btn_reset.clicked.connect(self.reset_telemetry)
+
         control_layout.addRow(self.btn_export)
         control_layout.addRow(self.btn_step_test)
+        control_layout.addRow(self.btn_reset)
 
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
@@ -591,20 +596,20 @@ class ThesisDashboard(QMainWindow):
         plot_layout = pg.GraphicsLayoutWidget()
         page_layout.addWidget(plot_layout, stretch=2)
 
-        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0) # type: ignore
+        self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1) # type: ignore
+        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
-        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0) # type: ignore
+        self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
-        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1) # type: ignore
+        self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
@@ -654,6 +659,25 @@ class ThesisDashboard(QMainWindow):
         self.network_thread.status_signal.connect(self.update_status)
         self.network_thread.start()
 
+    def reset_telemetry(self) -> None:
+        if hasattr(self, 'network_thread') and self.network_thread.isRunning():
+            self.network_thread.reset_time()
+            
+        self.table_model.clear_data()
+        
+        while not self.telemetry_queue.empty():
+            try:
+                self.telemetry_queue.get_nowait()
+            except queue.Empty:
+                break
+                
+        self.rpm_raw_line.setData([], [])
+        self.rpm_filt_line.setData([], [])
+        self.torque_line.setData([], [])
+        self.power_line.setData([], [])
+        self.npo_scatter.setData([], [])
+        self.rpm_plot.setTitle("Velocity vs. Time")
+
     def _on_control_mode_changed(self, index: int) -> None:
         self.target_slider.blockSignals(True)
         self.target_input.blockSignals(True)
@@ -688,6 +712,7 @@ class ThesisDashboard(QMainWindow):
         if not hasattr(self, 'step_test_win') or self.step_test_win is None or self.step_test_win.mode != mode:
             self.step_test_win = StepTestWindow(mode, self)
             self.step_test_win.test_thread.target_update_signal.connect(self.target_slider.setValue)
+            self.step_test_win.test_started_signal.connect(self.reset_telemetry)
         self.step_test_win.show()
         self.step_test_win.raise_()
         self.step_test_win.activateWindow()
