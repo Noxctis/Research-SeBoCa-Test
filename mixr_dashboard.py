@@ -144,6 +144,14 @@ class TelemetryReceiver(QThread):
                     while self._is_running:
                         if self._reset_flag:
                             packet_count = 0
+                            buffer = ""
+                            
+                            while not self.telemetry_queue.empty():
+                                try:
+                                    self.telemetry_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                                    
                             self._reset_flag = False
 
                         while not self.cmd_queue.empty():
@@ -485,7 +493,6 @@ class ThesisDashboard(QMainWindow):
         self.control_mode_cb.setStyleSheet(combo_style)
         self.control_mode_cb.currentIndexChanged.connect(self._on_control_mode_changed)
 
-        # --- Hardware Live Config ---
         self.cpr_cb = QComboBox()
         self.cpr_cb.addItem("48 PPR (192 CPR)", userData=192.0)
         self.cpr_cb.addItem("96 PPR (384 CPR)", userData=384.0)
@@ -495,10 +502,7 @@ class ThesisDashboard(QMainWindow):
         self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
         self.cpr_cb.addItem("250 PPR (1000 CPR)", userData=1000.0)
         self.cpr_cb.addItem("256 PPR (1024 CPR)", userData=1024.0)
-        
-        # Default to 200 PPR for optimal performance
         self.cpr_cb.setCurrentIndex(5) 
-        
         self.cpr_cb.setStyleSheet(combo_style)
         self.cpr_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
 
@@ -693,12 +697,6 @@ class ThesisDashboard(QMainWindow):
             
         self.table_model.clear_data()
         
-        while not self.telemetry_queue.empty():
-            try:
-                self.telemetry_queue.get_nowait()
-            except queue.Empty:
-                break
-                
         self.rpm_raw_line.setData([], [])
         self.rpm_filt_line.setData([], [])
         self.torque_line.setData([], [])
@@ -711,7 +709,6 @@ class ThesisDashboard(QMainWindow):
             cpr = self.cpr_cb.currentData()
             window = self.window_cb.currentData()
             
-            # Combine both commands into a single TCP packet so the queue doesn't overwrite CPR
             combined_payload = f"CMD:CPR,{cpr}\nCMD:WIN,{window}\n"
             self.network_thread.send_command(combined_payload)
             
