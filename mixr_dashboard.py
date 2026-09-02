@@ -710,8 +710,11 @@ class ThesisDashboard(QMainWindow):
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
             cpr = self.cpr_cb.currentData()
             window = self.window_cb.currentData()
-            self.network_thread.send_command(f"CMD:CPR,{cpr}\n")
-            self.network_thread.send_command(f"CMD:WIN,{window}\n")
+            
+            # Combine both commands into a single TCP packet so the queue doesn't overwrite CPR
+            combined_payload = f"CMD:CPR,{cpr}\nCMD:WIN,{window}\n"
+            self.network_thread.send_command(combined_payload)
+            
             self.reset_telemetry()
 
     def _on_control_mode_changed(self, index: int) -> None:
