@@ -132,7 +132,6 @@ class TelemetryReceiver(QThread):
                     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     s.settimeout(3.0)
                     s.connect((self.config.NETWORK_HOST, self.config.NETWORK_PORT))
-                    self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
                     
                     s.settimeout(0.01) 
                     
@@ -413,6 +412,7 @@ class ThesisDashboard(QMainWindow):
         self.config = SystemConfig()
         self.hardware_hz = 100
         self.telemetry_queue = queue.Queue()
+        self._last_status = ""
         
         self._setup_ui()
         self._start_network()
@@ -639,6 +639,7 @@ class ThesisDashboard(QMainWindow):
 
         self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.torque_line = self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
         self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
@@ -867,6 +868,7 @@ class ThesisDashboard(QMainWindow):
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {color}; font-size: 14px; padding: 10px;")
 
         if "MATLAB Mode 3 Active" in msg:
+            self._last_status = "Mode 3"
             self.set_mode3_active()
             self.switch_page(1)
             self.target_slider.setEnabled(False)
@@ -876,18 +878,22 @@ class ThesisDashboard(QMainWindow):
             self.window_cb.setEnabled(False)
 
         if "Mode 2 Active" in msg:
-            self.set_mode3_waiting()
-            self.switch_page(0)
-            self.target_slider.setEnabled(True)
-            self.target_input.setEnabled(True)
-            self.control_mode_cb.setEnabled(True)
-            self.cpr_cb.setEnabled(True)
-            self.window_cb.setEnabled(True)
-            
-            self._on_hardware_config_changed()
-            
-            if self.table_model.rowCount() > 0:
-                self.reset_telemetry()
+            if getattr(self, '_last_status', '') != "Mode 2":
+                self._last_status = "Mode 2"
+                
+                self.set_mode3_waiting()
+                self.switch_page(0)
+                self.target_slider.setEnabled(True)
+                self.target_input.setEnabled(True)
+                self.control_mode_cb.setEnabled(True)
+                self.cpr_cb.setEnabled(True)
+                self.window_cb.setEnabled(True)
+                
+                self._on_hardware_config_changed()
+                self._on_target_changed(self.target_slider.value())
+                
+                if self.table_model.rowCount() > 0:
+                    self.reset_telemetry()
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
