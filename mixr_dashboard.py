@@ -485,11 +485,20 @@ class ThesisDashboard(QMainWindow):
         self.control_mode_cb.setStyleSheet(combo_style)
         self.control_mode_cb.currentIndexChanged.connect(self._on_control_mode_changed)
 
+        # --- Hardware Live Config ---
         self.cpr_cb = QComboBox()
-        self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
         self.cpr_cb.addItem("48 PPR (192 CPR)", userData=192.0)
+        self.cpr_cb.addItem("96 PPR (384 CPR)", userData=384.0)
         self.cpr_cb.addItem("100 PPR (400 CPR)", userData=400.0)
+        self.cpr_cb.addItem("125 PPR (500 CPR)", userData=500.0)
+        self.cpr_cb.addItem("192 PPR (768 CPR)", userData=768.0)
+        self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
+        self.cpr_cb.addItem("250 PPR (1000 CPR)", userData=1000.0)
         self.cpr_cb.addItem("256 PPR (1024 CPR)", userData=1024.0)
+        
+        # Default to 200 PPR for optimal performance
+        self.cpr_cb.setCurrentIndex(5) 
+        
         self.cpr_cb.setStyleSheet(combo_style)
         self.cpr_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
 
