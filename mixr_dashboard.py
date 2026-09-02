@@ -47,6 +47,7 @@ import csv
 import logging
 import queue
 import signal
+import re
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Any
@@ -57,7 +58,8 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
     QComboBox, QTableView, QHeaderView, QGroupBox, QFormLayout, QPushButton, 
-    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, QSpinBox, QDialog, QProgressBar
+    QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, 
+    QSpinBox, QDialog, QProgressBar, QInputDialog
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex, QTimer
 from PyQt6.QtGui import QCloseEvent
@@ -289,7 +291,7 @@ class StepTestThread(QThread):
     def __init__(self):
         super().__init__()
         self._is_running = True
-        self.mode = 0  # 0 for RPM, 1 for PWM
+        self.mode = 0  
         
     def run(self) -> None:
         if self.mode == 0:
@@ -482,6 +484,21 @@ class ThesisDashboard(QMainWindow):
         self.control_mode_cb.addItem("Open-Loop (Target PWM %)")
         self.control_mode_cb.setStyleSheet(combo_style)
         self.control_mode_cb.currentIndexChanged.connect(self._on_control_mode_changed)
+
+        self.cpr_cb = QComboBox()
+        self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
+        self.cpr_cb.addItem("48 PPR (192 CPR)", userData=192.0)
+        self.cpr_cb.addItem("100 PPR (400 CPR)", userData=400.0)
+        self.cpr_cb.addItem("256 PPR (1024 CPR)", userData=1024.0)
+        self.cpr_cb.setStyleSheet(combo_style)
+        self.cpr_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
+
+        self.window_cb = QComboBox()
+        self.window_cb.addItem("20 ms", userData=20000)
+        self.window_cb.addItem("10 ms", userData=10000)
+        self.window_cb.addItem("50 ms", userData=50000)
+        self.window_cb.setStyleSheet(combo_style)
+        self.window_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
         
         self.fluid_cb = QComboBox()
         self.fluid_cb.addItem("Water (20°C)", userData=998.0) 
@@ -548,6 +565,8 @@ class ThesisDashboard(QMainWindow):
         target_layout.addWidget(self.target_input, stretch=1)
 
         control_layout.addRow("Control Mode:", self.control_mode_cb)
+        control_layout.addRow("Encoder Resolution:", self.cpr_cb)
+        control_layout.addRow("Sample Window:", self.window_cb)
         control_layout.addRow("Density (ρ):", self.fluid_cb)
         control_layout.addRow("Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Diameter (D):", self.impeller_cb)
@@ -678,6 +697,14 @@ class ThesisDashboard(QMainWindow):
         self.npo_scatter.setData([], [])
         self.rpm_plot.setTitle("Velocity vs. Time")
 
+    def _on_hardware_config_changed(self) -> None:
+        if hasattr(self, 'network_thread') and self.network_thread.isRunning():
+            cpr = self.cpr_cb.currentData()
+            window = self.window_cb.currentData()
+            self.network_thread.send_command(f"CMD:CPR,{cpr}\n")
+            self.network_thread.send_command(f"CMD:WIN,{window}\n")
+            self.reset_telemetry()
+
     def _on_control_mode_changed(self, index: int) -> None:
         self.target_slider.blockSignals(True)
         self.target_input.blockSignals(True)
@@ -795,8 +822,15 @@ class ThesisDashboard(QMainWindow):
         full_data = self.table_model.get_all_columns()
         if not full_data: return
 
+        suffix, ok = QInputDialog.getText(self, "Export Data", "Optional tag (e.g., '200ppr_20ms'):")
+        if not ok:
+            return 
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_file, mat_file = f"mixr1_log_{timestamp}.csv", f"mixr1_log_{timestamp}.mat"
+        clean_suffix = f"_{re.sub(r'[^a-zA-Z0-9_-]', '_', suffix.strip())}" if suffix.strip() else ""
+        
+        csv_file = f"mixr1_log_{timestamp}{clean_suffix}.csv"
+        mat_file = f"mixr1_log_{timestamp}{clean_suffix}.mat"
 
         try:
             with open(csv_file, 'w', newline='') as f:
@@ -829,6 +863,8 @@ class ThesisDashboard(QMainWindow):
             self.target_slider.setEnabled(False)
             self.target_input.setEnabled(False)
             self.control_mode_cb.setEnabled(False)
+            self.cpr_cb.setEnabled(False)
+            self.window_cb.setEnabled(False)
 
         if "Mode 2 Active" in msg:
             self.set_mode3_waiting()
@@ -836,22 +872,13 @@ class ThesisDashboard(QMainWindow):
             self.target_slider.setEnabled(True)
             self.target_input.setEnabled(True)
             self.control_mode_cb.setEnabled(True)
+            self.cpr_cb.setEnabled(True)
+            self.window_cb.setEnabled(True)
+            
+            self._on_hardware_config_changed()
             
             if self.table_model.rowCount() > 0:
-                self.table_model.clear_data()
-                
-                while not self.telemetry_queue.empty():
-                    try:
-                        self.telemetry_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                        
-                self.rpm_raw_line.setData([], [])
-                self.rpm_filt_line.setData([], [])
-                self.torque_line.setData([], [])
-                self.power_line.setData([], [])
-                self.npo_scatter.setData([], [])
-                self.rpm_plot.setTitle("Velocity vs. Time")
+                self.reset_telemetry()
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
