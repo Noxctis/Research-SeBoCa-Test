@@ -1,13 +1,14 @@
-"""Thesis-ready encoder resolution and PWM-step comparison.
+"""Analyze settled RPM data inside every PWM step.
 
-The logs are binned into fixed 10-second PWM steps:
-0-10 s -> 0%, 10-20 s -> 10%, ..., 100-110 s -> 100%.
-The x-axis in the generated graphs is PWM percentage, never elapsed time.
+For each 10-second command step, only the interior seconds are used:
+1-9 s, 11-19 s, ..., 91-99 s. This removes step-boundary transients.
+Results compare 10 ms versus 20 ms and all supplied encoder resolutions.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import re
 from pathlib import Path
 
@@ -15,127 +16,127 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-FILE_PATTERN = re.compile(r"_(?P<ppr>\d+)ppr_(?P<window>\d+)ms\.csv$", re.IGNORECASE)
+FILE_RE = re.compile(r"_(\d+)ppr_(\d+)ms\.csv$", re.IGNORECASE)
 REQUIRED = {"t (s)", "Raw RPM", "Filtered RPM", "Revolutions"}
-ALL_PPRS = [48, 96, 100, 125, 192, 200, 250, 256]
-FOCUS_PPRS = [48, 125, 256]
 WINDOWS = [10, 20]
-BIN_SECONDS = 10
-WINDOW_COLORS = {10: "#0072B2", 20: "#D55E00"}
-PPR_COLORS = {48: "#009E73", 125: "#E69F00", 256: "#CC79A7"}
+PWM_STEPS = list(range(0, 100, 10))
+COLORS = {10: "#0072B2", 20: "#D55E00"}
+COLORS_BY_PPR = {48: "#009E73", 125: "#E69F00", 256: "#CC79A7"}
 
 
-def find_logs(input_dir: Path) -> list[tuple[Path, int, int]]:
+def find_logs(folder: Path) -> list[tuple[Path, int, int]]:
     logs = []
-    for path in sorted(input_dir.glob("mixr1_log_*ppr_*ms.csv")):
-        match = FILE_PATTERN.search(path.name)
+    for path in sorted(folder.glob("mixr1_log_*ppr_*ms.csv")):
+        match = FILE_RE.search(path.name)
         if match:
-            logs.append((path, int(match["ppr"]), int(match["window"])))
-    expected = {(ppr, window) for ppr in ALL_PPRS for window in WINDOWS}
+            logs.append((path, int(match.group(1)), int(match.group(2))))
+    pprs = sorted({ppr for _, ppr, window in logs if window in WINDOWS})
+    expected = {(ppr, window) for ppr in pprs for window in WINDOWS}
     found = {(ppr, window) for _, ppr, window in logs}
-    missing = sorted(expected - found)
-    if missing:
-        raise FileNotFoundError(f"Missing PPR/window logs: {missing}")
-    return logs
+    if not logs or expected - found:
+        raise FileNotFoundError(f"Missing paired logs: {sorted(expected - found)}")
+    return [(path, ppr, window) for path, ppr, window in logs if window in WINDOWS]
 
 
-def load_log(path: Path) -> pd.DataFrame:
+def read_log(path: Path) -> pd.DataFrame:
     data = pd.read_csv(path)
     missing = REQUIRED - set(data.columns)
     if missing:
         raise ValueError(f"{path.name} is missing columns: {sorted(missing)}")
     for column in REQUIRED:
         data[column] = pd.to_numeric(data[column], errors="coerce")
-    data = data.dropna(subset=list(REQUIRED)).sort_values("t (s)").reset_index(drop=True)
-    if data.empty:
-        raise ValueError(f"{path.name} has no numeric samples")
-    data["pwm_percent"] = (np.floor(data["t (s)"] / BIN_SECONDS) * 10).astype(int)
+    data = data.dropna(subset=list(REQUIRED)).sort_values("t (s)").copy()
+    data = data[(data["t (s)"] >= 1) & (data["t (s)"] < 100)].copy()
+    # Keep seconds 1-9 inside each 10-second PWM command interval.
+    second_in_step = data["t (s)"] % 10
+    data = data[(second_in_step >= 1) & (second_in_step < 9)].copy()
+    data["pwm_percent"] = (np.floor(data["t (s)"] / 10) * 10).astype(int)
     return data
 
 
-def summarize_bin(data: pd.DataFrame, ppr: int, window: int, file_name: str) -> pd.DataFrame:
+def calculate_metrics(data: pd.DataFrame, ppr: int, window: int, file_name: str) -> pd.DataFrame:
     rows = []
-    for pwm, group in data.groupby("pwm_percent", sort=True):
+    for pwm in PWM_STEPS:
+        group = data[data["pwm_percent"] == pwm]
+        if group.empty:
+            continue
         raw = group["Raw RPM"]
         filtered = group["Filtered RPM"]
         rows.append({
-            "ppr": ppr,
-            "sampling_window_ms": window,
-            "pwm_percent": pwm,
-            "time_start_s": group["t (s)"].min(),
-            "time_end_s": group["t (s)"].max(),
-            "samples": len(group),
-            "raw_mean_rpm": raw.mean(),
-            "raw_median_rpm": raw.median(),
-            "raw_std_rpm": raw.std(ddof=1),
-            "raw_p05_rpm": raw.quantile(0.05),
-            "raw_p95_rpm": raw.quantile(0.95),
-            "raw_min_rpm": raw.min(),
-            "raw_max_rpm": raw.max(),
-            "filtered_mean_rpm": filtered.mean(),
-            "filtered_std_rpm": filtered.std(ddof=1),
-            "revolutions_start": group["Revolutions"].iloc[0],
-            "revolutions_end": group["Revolutions"].iloc[-1],
-            "revolution_increment": group["Revolutions"].iloc[-1] - group["Revolutions"].iloc[0],
-            "file": file_name,
+            "PPR": ppr, "Sampling Window (ms)": window, "PWM (%)": pwm,
+            "Settled Interval": f"{pwm}+1 to {pwm}+9 s",
+            "Samples": len(group), "Mean RPM": raw.mean(), "Median RPM": raw.median(),
+            "Standard Deviation (RPM)": raw.std(ddof=1),
+            "Coefficient of Variation (%)": raw.std(ddof=1) / raw.mean() * 100 if raw.mean() else np.nan,
+            "Minimum RPM": raw.min(), "Maximum RPM": raw.max(),
+            "Filtered Mean RPM": filtered.mean(),
+            "Filtered SD (RPM)": filtered.std(ddof=1),
+            "Revolution Increment": group["Revolutions"].iloc[-1] - group["Revolutions"].iloc[0],
+            "File": file_name,
         })
     return pd.DataFrame(rows)
 
 
-def make_overall_table(bin_summary: pd.DataFrame) -> pd.DataFrame:
+def condition_summary(metrics: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for (ppr, window), group in bin_summary.groupby(["ppr", "sampling_window_ms"]):
-        active = group[group["raw_mean_rpm"] > 0]
+    for (ppr, window), group in metrics.groupby(["PPR", "Sampling Window (ms)"]):
         rows.append({
-            "ppr": ppr,
-            "sampling_window_ms": window,
-            "pwm_steps_measured": len(group),
-            "active_pwm_start_percent": active["pwm_percent"].min() if not active.empty else np.nan,
-            "active_pwm_end_percent": active["pwm_percent"].max() if not active.empty else np.nan,
-            "mean_of_pwm_medians_rpm": active["raw_median_rpm"].mean() if not active.empty else np.nan,
-            "mean_within_step_sd_rpm": active["raw_std_rpm"].mean() if not active.empty else np.nan,
-            "worst_within_step_sd_rpm": active["raw_std_rpm"].max() if not active.empty else np.nan,
-            "mean_filtered_sd_rpm": active["filtered_std_rpm"].mean() if not active.empty else np.nan,
-            "total_revolution_increment": group["revolution_increment"].sum(),
-            "peak_raw_rpm": group["raw_max_rpm"].max(),
+            "PPR": ppr, "Sampling Window (ms)": window, "PWM Steps": len(group),
+            "Average Mean RPM": group["Mean RPM"].mean(),
+            "Average SD (RPM)": group["Standard Deviation (RPM)"].mean(),
+            "Median SD (RPM)": group["Standard Deviation (RPM)"].median(),
+            "Worst SD (RPM)": group["Standard Deviation (RPM)"].max(),
+            "Average CV (%)": group["Coefficient of Variation (%)"].mean(),
+            "Average Filtered SD (RPM)": group["Filtered SD (RPM)"].mean(),
+            "Total Revolution Increment": group["Revolution Increment"].sum(),
         })
-    return pd.DataFrame(rows).sort_values(["ppr", "sampling_window_ms"])
+    return pd.DataFrame(rows).sort_values(["PPR", "Sampling Window (ms)"])
 
 
-def make_window_difference(overall: pd.DataFrame) -> pd.DataFrame:
-    value_columns = [column for column in overall.columns if column not in {"ppr", "sampling_window_ms"}]
-    pivot = overall.pivot(index="ppr", columns="sampling_window_ms", values=value_columns)
+def window_comparison(metrics: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for ppr in pivot.index:
-        row = {"ppr": ppr}
+    value_columns = ["Mean RPM", "Standard Deviation (RPM)", "Coefficient of Variation (%)", "Filtered SD (RPM)", "Revolution Increment"]
+    for (ppr, pwm), group in metrics.groupby(["PPR", "PWM (%)"]):
+        values = group.set_index("Sampling Window (ms)")
+        if not set(WINDOWS).issubset(values.index):
+            continue
+        row = {"PPR": ppr, "PWM (%)": pwm, "Settled Interval": f"{pwm}+1 to {pwm}+9 s"}
         for column in value_columns:
-            ten = pivot.loc[ppr, (column, 10)]
-            twenty = pivot.loc[ppr, (column, 20)]
-            row[f"{column}_10ms"] = ten
-            row[f"{column}_20ms"] = twenty
-            row[f"{column}_20ms_minus_10ms"] = twenty - ten
-            row[f"{column}_percent_change"] = (twenty - ten) / abs(ten) * 100 if ten else np.nan
+            ten, twenty = values.loc[10, column], values.loc[20, column]
+            row[f"{column} (10 ms)"] = ten
+            row[f"{column} (20 ms)"] = twenty
+            row[f"{column} Difference (20-10)"] = twenty - ten
         rows.append(row)
-    return pd.DataFrame(rows).sort_values("ppr")
+    return pd.DataFrame(rows).sort_values(["PPR", "PWM (%)"])
 
 
-def markdown_table(data: pd.DataFrame) -> str:
-    headers = [str(column) for column in data.columns]
-    lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
-    for row in data.itertuples(index=False, name=None):
-        lines.append("| " + " | ".join("" if pd.isna(value) else str(value) for value in row) + " |")
-    return "\n".join(lines)
+def ppr_comparison(metrics: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    pprs = sorted(metrics["PPR"].unique())
+    for window, pwm, pair in itertools.product(WINDOWS, PWM_STEPS, itertools.combinations(pprs, 2)):
+        group = metrics[(metrics["Sampling Window (ms)"] == window) & (metrics["PWM (%)"] == pwm)].set_index("PPR")
+        if not set(pair).issubset(group.index):
+            continue
+        low, high = group.loc[pair[0]], group.loc[pair[1]]
+        rows.append({
+            "Sampling Window (ms)": window, "PWM (%)": pwm,
+            "Comparison": f"{pair[1]} PPR - {pair[0]} PPR",
+            "Mean RPM Difference": high["Mean RPM"] - low["Mean RPM"],
+            "SD Difference (RPM)": high["Standard Deviation (RPM)"] - low["Standard Deviation (RPM)"],
+            "CV Difference (%)": high["Coefficient of Variation (%)"] - low["Coefficient of Variation (%)"],
+            "Revolution Difference": high["Revolution Increment"] - low["Revolution Increment"],
+        })
+    return pd.DataFrame(rows)
 
 
-def save_table_image(data: pd.DataFrame, title: str, path: Path, font_size: int = 8) -> None:
-    display = data.copy().round(2)
-    display.columns = [str(column).replace("_", " ").title() for column in display.columns]
-    figure, axis = plt.subplots(figsize=(max(12, len(display.columns) * 1.25), max(3, (len(display) + 2) * 0.5)))
+def save_table(data: pd.DataFrame, title: str, path: Path, font_size: int = 7) -> None:
+    display = data.round(2).fillna("")
+    figure, axis = plt.subplots(figsize=(max(12, len(display.columns) * 1.1), max(3, (len(display) + 2) * 0.36)))
     axis.axis("off")
-    table = axis.table(cellText=display.fillna("").values, colLabels=display.columns, loc="center", cellLoc="center")
+    table = axis.table(cellText=display.values, colLabels=display.columns, loc="center", cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(font_size)
-    table.scale(1, 1.7)
+    table.scale(1, 1.55)
     for (row, _), cell in table.get_celld().items():
         cell.set_edgecolor("#B8C2CC")
         if row == 0:
@@ -149,45 +150,119 @@ def save_table_image(data: pd.DataFrame, title: str, path: Path, font_size: int 
     plt.close(figure)
 
 
-def plot_individual(data: pd.DataFrame, ppr: int, window: int, output_dir: Path) -> None:
-    figure, axes = plt.subplots(2, 1, figsize=(13, 8), sharex=True)
-    axes[0].plot(data["pwm_percent"], data["Raw RPM"], color="#263746", linewidth=1, label="Raw RPM")
-    axes[0].plot(data["pwm_percent"], data["Filtered RPM"], color="#D55E00", linewidth=1.2, alpha=0.8, label="Filtered RPM")
-    axes[0].set_ylabel("RPM")
-    axes[0].set_title(f"{ppr} PPR at {window} ms: response by PWM step")
-    axes[0].legend()
-    axes[1].plot(data["pwm_percent"], data["Revolutions"], color="#009E73", linewidth=1.2)
-    axes[1].set_xlabel("Set PWM (%)")
-    axes[1].set_ylabel("Revolutions")
-    axes[1].set_title("Cumulative encoder revolutions")
-    axes[1].set_xticks(sorted(data["pwm_percent"].unique()))
-    for axis in axes:
-        axis.grid(True, alpha=0.3)
-    figure.suptitle(f"Individual condition: {ppr} PPR, {window} ms", fontsize=15, fontweight="bold")
-    figure.tight_layout()
-    figure.savefig(output_dir / f"individual_{ppr}ppr_{window}ms_pwm.png", dpi=300, bbox_inches="tight")
+def pwm_axis(axis: plt.Axes) -> None:
+    axis.set_xticks(PWM_STEPS)
+    axis.set_xticklabels([f"{pwm}%\n{pwm + 1}-{pwm + 9} s" for pwm in PWM_STEPS])
+    axis.set_xlabel("Set PWM and settled interval")
+    axis.grid(True, alpha=0.25)
+
+
+def plot_window_overlay(metrics: pd.DataFrame, ppr: int, output: Path) -> None:
+    figure, axes = plt.subplots(2, 1, figsize=(13.333, 7.5), sharex=True)
+    for window in WINDOWS:
+        group = metrics[(metrics["PPR"] == ppr) & (metrics["Sampling Window (ms)"] == window)].set_index("PWM (%)").reindex(PWM_STEPS)
+        axes[0].errorbar(PWM_STEPS, group["Mean RPM"], yerr=group["Standard Deviation (RPM)"], marker="o", capsize=3, linewidth=2, color=COLORS[window], label=f"{window} ms")
+        axes[1].plot(PWM_STEPS, group["Standard Deviation (RPM)"], marker="o", linewidth=2, color=COLORS[window], label=f"{window} ms")
+    axes[0].set_ylabel("Mean RPM +/- SD")
+    axes[1].set_ylabel("Within-step SD (RPM)")
+    axes[0].set_title(f"{ppr} PPR: 10 ms versus 20 ms")
+    axes[1].set_title("Standard deviation comparison at matched PWM steps")
+    axes[0].legend(title="Sampling window")
+    pwm_axis(axes[1])
+    pwm_axis(axes[0])
+    figure.suptitle(f"Settled RPM comparison | {ppr} PPR | samples retained from 1-9 s of each 10 s step", fontsize=16, fontweight="bold")
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.savefig(output / f"overlay_{ppr}ppr_10ms_vs_20ms.png", dpi=300, bbox_inches="tight")
     plt.close(figure)
 
 
-def plot_ppr_comparison(bin_summary: pd.DataFrame, ppr: int, output_dir: Path) -> None:
-    figure, axes = plt.subplots(2, 1, figsize=(13, 9), sharex=True)
-    for window in WINDOWS:
-        group = bin_summary[(bin_summary["ppr"] == ppr) & (bin_summary["sampling_window_ms"] == window)]
-        axes[0].errorbar(group["pwm_percent"], group["raw_mean_rpm"], yerr=group["raw_std_rpm"], marker="o", capsize=3, color=WINDOW_COLORS[window], label=f"{window} ms")
-        axes[1].plot(group["pwm_percent"], group["filtered_mean_rpm"], marker="o", color=WINDOW_COLORS[window], label=f"{window} ms")
-    axes[0].set_title(f"{ppr} PPR: raw RPM by PWM step with within-step SD")
-    axes[1].set_title(f"{ppr} PPR: filtered RPM by PWM step")
-    axes[0].set_ylabel("Raw RPM")
-    axes[1].set_ylabel("Filtered RPM")
+def plot_ppr_overlay(metrics: pd.DataFrame, window: int, pprs: list[int], output: Path) -> None:
+    figure, axes = plt.subplots(2, 1, figsize=(13.333, 7.5), sharex=True)
+    for ppr in pprs:
+        group = metrics[(metrics["PPR"] == ppr) & (metrics["Sampling Window (ms)"] == window)].set_index("PWM (%)").reindex(PWM_STEPS)
+        axes[0].plot(PWM_STEPS, group["Mean RPM"], marker="o", linewidth=2, color=COLORS_BY_PPR[ppr], label=f"{ppr} PPR")
+        axes[1].plot(PWM_STEPS, group["Standard Deviation (RPM)"], marker="o", linewidth=2, color=COLORS_BY_PPR[ppr], label=f"{ppr} PPR")
+    axes[0].set_ylabel("Mean RPM")
+    axes[1].set_ylabel("Within-step SD (RPM)")
+    axes[0].set_title(f"Mean RPM comparison at {window} ms")
+    axes[1].set_title(f"Standard deviation comparison at {window} ms")
+    axes[0].legend(title="Encoder resolution")
+    pwm_axis(axes[1])
+    pwm_axis(axes[0])
+    figure.suptitle(f"Encoder-resolution effect | {window} ms sampling window | settled intervals 1-9, 11-19, ... s", fontsize=16, fontweight="bold")
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.savefig(output / f"overlay_{window}ms_ppr_comparison.png", dpi=300, bbox_inches="tight")
+    plt.close(figure)
+
+
+def plot_all_ppr_mean_rpm(metrics: pd.DataFrame, output: Path) -> None:
+    pprs = sorted(metrics["PPR"].unique())
+    palette = plt.get_cmap("viridis", len(pprs))
+    figure, axes = plt.subplots(2, 1, figsize=(13.333, 7.5), sharex=True)
+    for index, ppr in enumerate(pprs):
+        color = palette(index)
+        for axis, window in zip(axes, WINDOWS):
+            group = metrics[(metrics["PPR"] == ppr) & (metrics["Sampling Window (ms)"] == window)].set_index("PWM (%)").reindex(PWM_STEPS)
+            axis.plot(PWM_STEPS, group["Mean RPM"], marker="o", linewidth=1.8, color=color, label=f"{ppr} PPR")
+        axes[0].set_title("Mean RPM for every encoder resolution at 10 ms")
+        axes[1].set_title("Mean RPM for every encoder resolution at 20 ms")
+    for axis, window in zip(axes, WINDOWS):
+        axis.set_ylabel("Mean RPM")
+        axis.legend(title="PPR", ncol=4, fontsize=8)
+        pwm_axis(axis)
+    figure.suptitle("All encoder resolutions: settled mean RPM by PWM step", fontsize=16, fontweight="bold")
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.savefig(output / "overlay_all_ppr_mean_rpm.png", dpi=300, bbox_inches="tight")
+    plt.close(figure)
+
+
+def compact_tables(summary: pd.DataFrame, metrics: pd.DataFrame, output: Path) -> None:
+    selected = summary[["PPR", "Sampling Window (ms)", "Average Mean RPM", "Average SD (RPM)", "Median SD (RPM)", "Worst SD (RPM)", "Average CV (%)"]].copy()
+    save_table(selected, "All encoder resolutions and sampling windows", output / "table_all_resolutions_compact.png", 9)
+    focus = summary[summary["PPR"].isin([48, 125, 256])]
+    focus_table = focus[["PPR", "Sampling Window (ms)", "Average Mean RPM", "Average SD (RPM)", "Median SD (RPM)", "Worst SD (RPM)", "Average CV (%)"]].copy()
+    save_table(focus_table, "Recommended resolutions: direct 10 ms versus 20 ms summary", output / "table_focus_resolutions_compact.png", 9)
+    for ppr in [48, 125, 256]:
+        group = metrics[metrics["PPR"] == ppr][["PWM (%)", "Settled Interval", "Sampling Window (ms)", "Mean RPM", "Standard Deviation (RPM)", "Coefficient of Variation (%)"]]
+        save_table(group, f"{ppr} PPR: settled PWM-step values", output / f"table_{ppr}ppr_compact.png", 8)
+
+
+def plot_individual(metrics: pd.DataFrame, ppr: int, window: int, output: Path) -> None:
+    group = metrics[(metrics["PPR"] == ppr) & (metrics["Sampling Window (ms)"] == window)].sort_values("PWM (%)")
+    figure, axes = plt.subplots(2, 1, figsize=(13, 8), sharex=True)
+    axes[0].errorbar(group["PWM (%)"], group["Mean RPM"], yerr=group["Standard Deviation (RPM)"], marker="o", capsize=3, color=COLORS[window])
+    axes[0].set_ylabel("Mean RPM")
+    axes[0].set_title(f"{ppr} PPR, {window} ms: settled mean RPM +/- SD")
+    axes[1].plot(group["PWM (%)"], group["Standard Deviation (RPM)"], marker="o", color=COLORS[window])
     axes[1].set_xlabel("Set PWM (%)")
-    axes[0].legend(title="Sampling window")
-    ticks = sorted(bin_summary["pwm_percent"].unique())
+    axes[1].set_ylabel("SD (RPM)")
+    axes[1].set_title("Settled within-step standard deviation")
     for axis in axes:
-        axis.set_xticks(ticks)
+        axis.set_xticks(PWM_STEPS)
         axis.grid(True, alpha=0.3)
-    figure.suptitle(f"Sampling-window comparison at {ppr} PPR", fontsize=15, fontweight="bold")
+    figure.suptitle(f"Individual settled analysis: {ppr} PPR at {window} ms", fontsize=15, fontweight="bold")
     figure.tight_layout()
-    figure.savefig(output_dir / f"compare_{ppr}ppr_10ms_vs_20ms_pwm.png", dpi=300, bbox_inches="tight")
+    figure.savefig(output / f"individual_{ppr}ppr_{window}ms_settled.png", dpi=300, bbox_inches="tight")
+    plt.close(figure)
+
+
+def plot_complete_ppr(log_data: dict[tuple[int, int], pd.DataFrame], ppr: int, output: Path) -> None:
+    figure, axis = plt.subplots(figsize=(13.333, 7.5))
+    for window in WINDOWS:
+        data = log_data[(ppr, window)]
+        axis.plot(data["t (s)"], data["Raw RPM"], linewidth=0.8, alpha=0.75, color=COLORS[window], label=f"Raw RPM, {window} ms")
+    for pwm in PWM_STEPS:
+        axis.axvspan(pwm + 1, pwm + 9, color="#EEF3F6", alpha=0.45, zorder=0)
+    axis.set_xticks([pwm + 5 for pwm in PWM_STEPS])
+    axis.set_xticklabels([f"{pwm}%\n{pwm + 1}-{pwm + 9} s" for pwm in PWM_STEPS])
+    axis.set_xlabel("Set PWM and complete retained time interval")
+    axis.set_ylabel("Raw RPM")
+    axis.set_title(f"Complete RPM data overlay: {ppr} PPR, 10 ms versus 20 ms")
+    axis.legend(title="Sampling window")
+    axis.grid(True, alpha=0.25)
+    figure.suptitle(f"All retained samples | {ppr} PPR | no PWM-bin averaging", fontsize=16, fontweight="bold")
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.savefig(output / f"complete_{ppr}ppr_raw_overlay.png", dpi=300, bbox_inches="tight")
     plt.close(figure)
 
 
@@ -196,37 +271,50 @@ def main() -> None:
     parser.add_argument("--input-dir", type=Path, default=Path(__file__).parent)
     parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args()
-    output_dir = args.output_dir or args.input_dir / "ppr_thesis_comparison"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output = args.output_dir or args.input_dir / "ppr_settled_thesis_analysis"
+    output.mkdir(parents=True, exist_ok=True)
 
     logs = find_logs(args.input_dir)
-    bin_summary = pd.concat([summarize_bin(load_log(path), ppr, window, path.name) for path, ppr, window in logs], ignore_index=True)
-    overall = make_overall_table(bin_summary)
-    differences = make_window_difference(overall)
-    bin_summary.to_csv(output_dir / "all_ppr_pwm_step_summary.csv", index=False)
-    overall.to_csv(output_dir / "all_ppr_sampling_summary.csv", index=False)
-    differences.to_csv(output_dir / "all_ppr_20ms_minus_10ms.csv", index=False)
-    save_table_image(overall, "All encoder resolutions: 10 ms versus 20 ms", output_dir / "table_all_ppr_sampling_windows.png")
-    save_table_image(differences[["ppr", "mean_of_pwm_medians_rpm_20ms_minus_10ms", "mean_within_step_sd_rpm_20ms_minus_10ms", "worst_within_step_sd_rpm_20ms_minus_10ms", "mean_filtered_sd_rpm_20ms_minus_10ms", "total_revolution_increment_20ms_minus_10ms", "peak_raw_rpm_20ms_minus_10ms"]], "All PPR: effect of 20 ms relative to 10 ms", output_dir / "table_all_ppr_window_effect.png")
-
-    focus = bin_summary[bin_summary["ppr"].isin(FOCUS_PPRS)]
-    for ppr in FOCUS_PPRS:
-        save_table_image(focus[focus["ppr"] == ppr][["pwm_percent", "sampling_window_ms", "raw_mean_rpm", "raw_median_rpm", "raw_std_rpm", "raw_p05_rpm", "raw_p95_rpm", "filtered_mean_rpm", "revolution_increment"]], f"{ppr} PPR: individual PWM-step comparison", output_dir / f"table_{ppr}ppr_pwm_steps.png")
-        plot_ppr_comparison(bin_summary, ppr, output_dir)
+    log_data = {(ppr, window): read_log(path) for path, ppr, window in logs}
+    metrics = pd.concat([calculate_metrics(read_log(path), ppr, window, path.name) for path, ppr, window in logs], ignore_index=True)
+    summary = condition_summary(metrics)
+    windows = window_comparison(metrics)
+    pprs = ppr_comparison(metrics)
+    metrics.to_csv(output / "01_settled_pwm_metrics_1_to_100s.csv", index=False)
+    summary.to_csv(output / "02_settled_condition_summary.csv", index=False)
+    windows.to_csv(output / "03_10ms_vs_20ms_settled_differences.csv", index=False)
+    pprs.to_csv(output / "04_ppr_settled_differences.csv", index=False)
+    save_table(summary, "Settled analysis: all PPR and sampling windows", output / "table_all_ppr_settled_summary.png")
+    save_table(windows, "Settled 10 ms versus 20 ms at matched PPR and PWM", output / "table_10ms_vs_20ms_settled.png", 6)
+    save_table(pprs, "Settled PPR differences at matched PWM and sampling window", output / "table_ppr_settled_effects.png", 7)
     for path, ppr, window in logs:
-        if ppr in FOCUS_PPRS:
-            plot_individual(load_log(path), ppr, window, output_dir)
-
-    report = output_dir / "thesis_update_summary.md"
-    with report.open("w", encoding="utf-8") as file:
-        file.write("# Encoder Resolution and PWM-Step Comparison\n\n")
-        file.write("PWM bins are fixed at 10 seconds: 0-10 s = 0%, 10-20 s = 10%, continuing by 10 percentage points. All PPR values supplied are included in the all-resolution tables: 48, 96, 100, 125, 192, 200, 250, and 256 PPR.\n\n")
-        file.write("## All-Resolution Summary\n\n" + markdown_table(overall.round(2)))
-        file.write("\n\n## 20 ms Minus 10 ms\n\n" + markdown_table(differences.round(2)))
-        file.write("\n\nThe within-PWM-step standard deviation is the primary short-term variability measure. It is calculated from samples inside each 10-second PWM interval; full-run speed spread is not used as a noise estimate.\n")
-    print(f"Analyzed {len(logs)} logs across {len(ALL_PPRS)} encoder resolutions.")
-    print(f"Focused individual graphs generated for {FOCUS_PPRS} PPR at both sampling windows.")
-    print(f"Reports written to: {output_dir}")
+        plot_individual(metrics, ppr, window, output)
+    for ppr in sorted(metrics["PPR"].unique()):
+        plot_complete_ppr(log_data, ppr, output)
+    compact_tables(summary, metrics, output)
+    for ppr in [48, 125, 256]:
+        plot_window_overlay(metrics, ppr, output)
+    for window in WINDOWS:
+        plot_ppr_overlay(metrics, window, [48, 125, 256], output)
+    plot_all_ppr_mean_rpm(metrics, output)
+    for ppr in sorted(metrics["PPR"].unique()):
+        for window in WINDOWS:
+            group = metrics[(metrics["PPR"] == ppr) & (metrics["Sampling Window (ms)"] == window)]
+            plt.figure(figsize=(11, 5))
+            plt.errorbar(group["PWM (%)"], group["Mean RPM"], yerr=group["Standard Deviation (RPM)"], marker="o", capsize=3, color=COLORS[window])
+            plt.title(f"{ppr} PPR at {window} ms: settled RPM response")
+            plt.xlabel("Set PWM (%)")
+            plt.ylabel("Mean RPM +/- SD")
+            plt.xticks(PWM_STEPS)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(output / f"response_{ppr}ppr_{window}ms_settled.png", dpi=300, bbox_inches="tight")
+            plt.close()
+    with (output / "analysis_definition.md").open("w", encoding="utf-8") as file:
+        file.write("# Settled Analysis Definition\n\n")
+        file.write("Only samples from 1 to 100 seconds are considered. For each 10-second PWM command step, only the interior seconds are retained: 1-9 s, 11-19 s, ..., 91-99 s. The first and last second of each step are excluded to remove command-boundary transients. Standard deviation is calculated from RPM samples inside each settled interval. The sampling-window effect is 20 ms minus 10 ms at identical PPR and PWM. PPR effects are pairwise differences at identical PWM and sampling window.\n")
+    print(f"Analyzed {len(logs)} logs, {metrics['PPR'].nunique()} PPR values, and {metrics['PWM (%)'].nunique()} PWM steps.")
+    print(f"Settled outputs written to: {output}")
 
 
 if __name__ == "__main__":
