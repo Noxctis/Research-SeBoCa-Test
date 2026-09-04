@@ -502,7 +502,7 @@ class ThesisDashboard(QMainWindow):
         self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
         self.cpr_cb.addItem("250 PPR (1000 CPR)", userData=1000.0)
         self.cpr_cb.addItem("256 PPR (1024 CPR)", userData=1024.0)
-        self.cpr_cb.setCurrentIndex(5) 
+        self.cpr_cb.setCurrentIndex(8) 
         self.cpr_cb.setStyleSheet(combo_style)
         self.cpr_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
 
