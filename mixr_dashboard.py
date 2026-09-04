@@ -490,6 +490,7 @@ class ThesisDashboard(QMainWindow):
         self.control_mode_cb = QComboBox()
         self.control_mode_cb.addItem("Closed-Loop (Target RPM)")
         self.control_mode_cb.addItem("Open-Loop (Target PWM %)")
+        self.control_mode_cb.setCurrentIndex(1)
         self.control_mode_cb.setStyleSheet(combo_style)
         self.control_mode_cb.currentIndexChanged.connect(self._on_control_mode_changed)
 
@@ -502,7 +503,7 @@ class ThesisDashboard(QMainWindow):
         self.cpr_cb.addItem("200 PPR (800 CPR)", userData=800.0)
         self.cpr_cb.addItem("250 PPR (1000 CPR)", userData=1000.0)
         self.cpr_cb.addItem("256 PPR (1024 CPR)", userData=1024.0)
-        self.cpr_cb.setCurrentIndex(8) 
+        self.cpr_cb.setCurrentIndex(7) 
         self.cpr_cb.setStyleSheet(combo_style)
         self.cpr_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
 
