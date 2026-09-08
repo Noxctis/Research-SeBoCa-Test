@@ -1,0 +1,34 @@
+50mm
+trial 1: 57mm
+trial 2: 56 mm
+trial 3: 49 mm
+trial 4: 54 mm
+trial 5: 53 mm
+
+100mm
+trial 1: 105 mm
+trial 2: 103 mm
+trial 3: 100 mm
+trial 4: 102 mm
+trial 5: 104 mm
+
+150mm
+trial 1: 150 mm
+trial 2: 150 mm
+trial 3: 151 mm
+trial 4: 149 mm
+trial 5: 150 mm
+
+200mm
+trial 1: 196 mm
+trial 2: 195 mm
+trial 3: 196 mm
+trial 4: 195 mm
+trial 5: 196 mm
+
+250mm
+trial 1: 240 mm
+trial 2: 242 mm
+trial 3: 241 mm
+trial 4: 241 mm
+trial 5: 237 mm
