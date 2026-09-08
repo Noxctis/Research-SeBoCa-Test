@@ -1,6 +1,7 @@
 """
 analyze_sweep.py
 Purpose: Automated Multi-Step Response Analyzer for MIXR-1 (Synchronous CET Data).
+Extracts steady-state gain, system poles, bandwidth, and IMC PI tuning parameters.
 """
 import glob
 import os
@@ -59,7 +60,7 @@ print("=" * 60)
 
 with open(master_file, "a") as f:
     if not file_exists:
-        f.write("Dataset,Step_Idx,Baseline_PWM_pct,Step_PWM_pct,Baseline_RPM,Pole_A,Rise_Time_s,Settling_Time_s,Kp,Ki\n")
+        f.write("Dataset,Step_Idx,Baseline_PWM_pct,Step_PWM_pct,Baseline_RPM,Pole_A,Rise_Time_s,Settling_Time_s,Bandwidth_Hz,Kp,Ki\n")
 
     for step_idx in unique_steps:
         prev_data = df[df['step_index'] == step_idx - 1]
@@ -97,6 +98,7 @@ with open(master_file, "a") as f:
 
         settling_time_2pct = 4.0 / A_fit
         rise_time_10_90 = 2.197 / A_fit
+        bandwidth_hz = A_fit / (2 * np.pi)
         
         delta_pwm = step_pwm_raw - base_pwm_raw
         if delta_pwm == 0:
@@ -106,31 +108,29 @@ with open(master_file, "a") as f:
         Kp_calc = 1.0 / K_plant if np.isfinite(K_plant) and abs(K_plant) > 0 else np.nan
         Ki_calc = Kp_calc * A_fit if np.isfinite(Kp_calc) else np.nan
 
-        print(f"Step {step_idx} | {base_pct}% -> {step_pct}% PWM | Baseline: {baseline_rpm:.1f} RPM")
-        print(f"  -> Pole (A): {A_fit:.3f} | Kp: {Kp_calc:.4f} | Ki: {Ki_calc:.4f}")
+        print(f"Step {step_idx:2d} | {base_pct:3d}% -> {step_pct:3d}% PWM | Baseline: {baseline_rpm:7.2f} RPM")
+        print(f"        -> Pole (A): {A_fit:6.3f} | BW: {bandwidth_hz:5.2f} Hz | Kp: {Kp_calc:7.4f} | Ki: {Ki_calc:7.4f}")
 
-        f.write(f"{selected_file},{step_idx},{base_pct},{step_pct},{baseline_rpm:.2f},{A_fit:.4f},{rise_time_10_90:.4f},{settling_time_2pct:.4f},{Kp_calc:.4f},{Ki_calc:.4f}\n")
+        f.write(f"{selected_file},{step_idx},{base_pct},{step_pct},{baseline_rpm:.2f},{A_fit:.4f},{rise_time_10_90:.4f},{settling_time_2pct:.4f},{bandwidth_hz:.4f},{Kp_calc:.4f},{Ki_calc:.4f}\n")
 
         valid_steps.append((baseline_rpm, Kp_calc, Ki_calc, base_pct, step_pct))
         kp_list.append(Kp_calc)
         ki_list.append(Ki_calc)
 
-        # Plotting Side-by-Side (Raw vs Fitted)
+        # Plotting Side-by-Side
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
         
-        # Plot 1: Raw Data
         ax1.scatter(t, rpm, s=8, color="#58a6ff", alpha=0.6)
         ax1.set_title(f"Raw Data: {base_pct}% to {step_pct}% PWM")
         ax1.set_xlabel("Time (seconds)")
         ax1.set_ylabel("RPM")
         ax1.grid(True, linestyle=":", alpha=0.7)
 
-        # Plot 2: Fitted Data
         ax2.scatter(t, rpm, s=8, color="#58a6ff", alpha=0.3, label="Raw CET Data")
         ax2.plot(t, first_order_step(t, baseline_rpm, K_fit, A_fit), "r-", linewidth=2.5, label=f"Fitted G(s): K={K_fit:.1f}, A={A_fit:.2f}")
         ax2.axvline(x=rise_time_10_90, color="orange", linestyle="--", alpha=0.7, label=f"Rise Time ({rise_time_10_90:.2f}s)")
         ax2.axvline(x=settling_time_2pct, color="#3fb950", linestyle="--", alpha=0.7, label=f"Settling Time ({settling_time_2pct:.2f}s)")
-        ax2.set_title(f"Fitted Model: {base_pct}% to {step_pct}% PWM")
+        ax2.set_title(f"Fitted Model (BW: {bandwidth_hz:.2f} Hz)")
         ax2.set_xlabel("Time (seconds)")
         ax2.legend()
         ax2.grid(True, linestyle=":", alpha=0.7)
@@ -145,7 +145,6 @@ print(f" [1] SINGLE GLOBAL PI TUNING (MEDIAN) ")
 print("=" * 60)
 global_kp = np.median(kp_list) if kp_list else 0.0
 global_ki = np.median(ki_list) if ki_list else 0.0
-print(f"If a single value is required, use the median across {len(valid_steps)} operating points:")
 print(f"Kp = {global_kp:.4f}")
 print(f"Ki = {global_ki:.4f}")
 
@@ -155,7 +154,7 @@ print("=" * 60)
 cpp_schedule = f"    // --- COPY INTO config.hpp ---\n    constexpr std::array<GainTier, {len(valid_steps)}> PI_SCHEDULE = {{\n"
 for i, (rpm, kp, ki, base, step) in enumerate(valid_steps):
     comma = "," if i < len(valid_steps) - 1 else ""
-    cpp_schedule += f"        {{{rpm:6.2f}, {kp:7.4f}, {ki:7.4f}}}{comma} // Step {i+1}: {base}% to {step}% PWM\n"
+    cpp_schedule += f"        {{{rpm:7.2f}, {kp:7.4f}, {ki:7.4f}}}{comma} // Step {i+1}: {base}% to {step}% PWM\n"
 cpp_schedule += "    }};\n"
 print(cpp_schedule)
 
