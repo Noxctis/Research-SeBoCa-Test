@@ -529,12 +529,12 @@ class ThesisDashboard(QMainWindow):
 
         target_layout = QHBoxLayout()
         self.target_slider = QSlider(Qt.Orientation.Horizontal)
-        self.target_slider.setRange(0, 2500)
+        self.target_slider.setRange(0, 100)
         self.target_slider.setValue(0)
         self.target_slider.setStyleSheet("QSlider::handle:horizontal { background: #58a6ff; width: 14px; margin: -4px 0; border-radius: 7px; } QSlider::groove:horizontal { background: #30363d; height: 6px; border-radius: 3px; }")
         
         self.target_input = QSpinBox()
-        self.target_input.setRange(0, 2500)
+        self.target_input.setRange(0, 100)
         self.target_input.setValue(0)
         self.target_input.setStyleSheet("""
             QSpinBox { 
@@ -585,7 +585,7 @@ class ThesisDashboard(QMainWindow):
         control_layout.addRow("Viscosity (μ):", self.visc_cb)
         control_layout.addRow("Diameter (D):", self.impeller_cb)
         
-        self.target_lbl = QLabel("Target Speed (RPM):")
+        self.target_lbl = QLabel("Target Duty Cycle (%):")
         control_layout.addRow(self.target_lbl, target_layout)
         
         self.btn_export = QPushButton("Export Data (.csv & .mat)")
@@ -631,6 +631,8 @@ class ThesisDashboard(QMainWindow):
 
         self.rpm_plot = plot_layout.addPlot(title="Velocity vs. Time", row=0, col=0)  # type: ignore
         self.rpm_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.rpm_plot.setYRange(0, 500)
+        self.rpm_plot.setMouseEnabled(y=False)
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
@@ -640,7 +642,6 @@ class ThesisDashboard(QMainWindow):
 
         self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.torque_line = self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
 
         self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
