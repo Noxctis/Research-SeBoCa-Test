@@ -104,9 +104,14 @@ with open(master_file, "a") as f:
         if delta_pwm == 0:
             continue
             
+        # --- NEW IMC BANDWIDTH TUNING ---
+        target_bandwidth_rads = 0.5 # <--- CHANGE THIS VALUE (Lower = Softer, Higher = Stiffer)
+        T_c = 1.0 / target_bandwidth_rads 
+        
         K_plant = K_fit / delta_pwm
-        Kp_calc = 1.0 / K_plant if np.isfinite(K_plant) and abs(K_plant) > 0 else np.nan
+        Kp_calc = 1.0 / (K_plant * T_c) if np.isfinite(K_plant) and abs(K_plant) > 0 else np.nan
         Ki_calc = Kp_calc * A_fit if np.isfinite(Kp_calc) else np.nan
+        # --------------------------------
 
         print(f"Step {step_idx:2d} | {base_pct:3d}% -> {step_pct:3d}% PWM | Baseline: {baseline_rpm:7.2f} RPM")
         print(f"        -> Pole (A): {A_fit:6.3f} | BW: {bandwidth_hz:5.2f} Hz | Kp: {Kp_calc:7.4f} | Ki: {Ki_calc:7.4f}")
