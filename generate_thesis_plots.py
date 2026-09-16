@@ -25,9 +25,9 @@ output_dir = f"MIXR1_Thesis_Plots_{date_str}"
 os.makedirs(output_dir, exist_ok=True)
 print(f"Output directory created: {output_dir}/")
 
-file_05 = "mixr1_log_20260915_114405_256ppr_20ms_05rads_baffled_350rpm.csv"
+file_05 = "mixr1_log_20260915_120201_256ppr_20ms_350rpm05radsforrealcomplete.csv"
 file_10 = "mixr1_log_20260914_185949_350rpm_1rads_pi.csv"
-file_dist_10 = "mixr1_log_20260914_185949_350rpm_1rads_pi 2.csv"
+file_dist_10 = "mixr1_log_20260914_185949_350rpm_1rads_pi.csv"
 
 try:
     df_05 = pd.read_csv(file_05)
@@ -149,64 +149,77 @@ def plot_isolated_events_10():
         plt.close(fig)
 
 # ==========================================
-# 5. 0.5 rad/s Disturbance Analysis
+# 5. 0.5 rad/s Load Disturbance Overview
 # ==========================================
-def plot_05_rads_disturbances():
-    water_drops = [47, 78, 107, 133, 158]
-    baffle_in = 209
-    baffle_out = 235
-
-    # Overview Plot
+def plot_disturbance_overview_05():
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(df_05['t (s)'], df_05['Filtered RPM'], label='Filtered RPM', color='#1f77b4', alpha=0.9)
     ax.plot(df_05['t (s)'], df_05['Raw RPM'], label='Raw RPM', color='gray', alpha=0.3, linewidth=1)
     ax.axhline(350, color='red', linestyle='--', label='Target (350 RPM)')
 
+    water_drops = [47, 78, 107, 133, 158]
     for drop in water_drops:
         ax.axvline(drop, color='teal', linestyle=':', linewidth=1.5, label='Water Drop' if drop == 47 else "")
 
-    ax.axvline(baffle_in, color='orange', linestyle='--', linewidth=1.5, label='Baffles Inserted')
-    ax.axvline(baffle_out, color='green', linestyle='--', linewidth=1.5, label='Baffles Removed')
+    ax.axvline(209, color='orange', linestyle='--', linewidth=1.5, label='Baffles Inserted')
+    ax.axvline(235, color='green', linestyle='--', linewidth=1.5, label='Baffles Removed')
 
     ax.set_title("0.5 rad/s PI Controller: Full Disturbance Response")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("RPM")
     ax.set_xlim(0, 260)
-    ax.set_ylim(280, 420)
+    ax.set_ylim(-20, 420)
     ax.legend(loc='lower left')
     ax.grid(True, linestyle=':', alpha=0.7)
     
     plt.savefig(os.path.join(output_dir, "fig11_05rads_disturbance_overview.png"))
     plt.close(fig)
 
-    # Zoomed Water Drops
-    fig, axes = plt.subplots(len(water_drops), 1, figsize=(8, 12), sharey=False)
-    fig.suptitle("Zoomed-In Water Drop Disturbances (0.5 rad/s Bandwidth)", fontsize=13, y=0.98)
+# ==========================================
+# 6. 0.5 rad/s Isolated Event Zooms
+# ==========================================
+def plot_isolated_events_05():
+    events = {
+        "Drop_1": (47, "teal", ":"),
+        "Drop_2": (78, "teal", ":"),
+        "Drop_3": (107, "teal", ":"),
+        "Drop_4": (133, "teal", ":"),
+        "Drop_5": (158, "teal", ":"),
+        "Baffle_Insert": (209, "orange", "--"),
+        "Baffle_Remove": (235, "green", "--")
+    }
 
-    for i, drop_t in enumerate(water_drops):
-        ax = axes[i]
-        window_start = drop_t - 2
-        window_end = drop_t + 8
+    for idx, (event_name, (event_t, color, style)) in enumerate(events.items(), start=12):
+        fig, ax = plt.subplots(figsize=(6, 4))
         
+        window_start = event_t - 2
+        window_end = event_t + 8
         df_zoom = df_05[(df_05['t (s)'] >= window_start) & (df_05['t (s)'] <= window_end)]
         
-        ax.plot(df_zoom['t (s)'], df_zoom['Raw RPM'], color='gray', alpha=0.4, label='Raw RPM' if i==0 else "", linewidth=1)
-        ax.plot(df_zoom['t (s)'], df_zoom['Filtered RPM'], color='#1f77b4', linewidth=2, label='Filtered RPM' if i==0 else "")
+        ax.plot(df_zoom['t (s)'], df_zoom['Raw RPM'], color='gray', alpha=0.4, label='Raw RPM', linewidth=1)
+        ax.plot(df_zoom['t (s)'], df_zoom['Filtered RPM'], color='#1f77b4', linewidth=2, label='Filtered RPM')
         
-        ax.axhline(350, color='red', linestyle='--', label='Target (350 RPM)' if i==0 else "")
-        ax.axvline(drop_t, color='teal', linestyle=':', linewidth=2, label='Water Drop' if i==0 else "")
+        ax.axhline(350, color='red', linestyle='--', label='Target')
+        ax.axvline(event_t, color=color, linestyle=style, linewidth=2, label=event_name.replace("_", " "))
         
-        ax.set_title(f"Disturbance Event: t = {drop_t}s", fontsize=11)
+        event_title = event_name.replace("_", " ")
+        if "Drop" in event_title: event_title = "Water " + event_title
+        
+        ax.set_title(f"{event_title} (t = {event_t}s)")
+        ax.set_xlabel("Time (s)")
         ax.set_ylabel("RPM")
+        
+        if "Baffle" in event_name:
+            ax.set_ylim(280, 400)
+        else:
+            ax.set_ylim(300, 390)
+            
+        ax.legend(loc='best')
         ax.grid(True, linestyle=':', alpha=0.7)
-        ax.set_ylim(300, 390)
-
-    axes[-1].set_xlabel("Time (s)")
-    fig.legend(loc='upper right', bbox_to_anchor=(0.95, 0.98), ncol=4)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    
-    plt.savefig(os.path.join(output_dir, "fig12_05rads_water_drops_zoomed.png"))
-    plt.close(fig)
+        
+        filename = f"fig{idx}_05rads_{event_name.lower()}.png"
+        plt.savefig(os.path.join(output_dir, filename))
+        plt.close(fig)
 
 # ==========================================
 # Execute Script
@@ -216,5 +229,6 @@ if __name__ == "__main__":
     plot_step_responses()
     plot_disturbance_overview_10()
     plot_isolated_events_10()
-    plot_05_rads_disturbances()
+    plot_disturbance_overview_05()
+    plot_isolated_events_05()
     print("Complete. All thesis-formatted plots saved to directory.")
