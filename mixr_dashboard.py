@@ -164,11 +164,11 @@ class TelemetryReceiver(QThread):
                             buffer += chunk
                             while "\n" in buffer:
                                 line, buffer = buffer.split("\n", 1)
-                                if not line.strip(): continue
+                                clean_line = line.strip() # Strip invisible trailing chars like \r
+                                if not clean_line: continue
                                     
                                 try:
-                                    # Split with backwards compatibility in case C++ Mode 3 packet isn't fully updated yet
-                                    parts = line.split(",")
+                                    parts = clean_line.split(",")
                                     if len(parts) >= 3:
                                         raw_rpm = float(parts[0])
                                         filt_rpm = float(parts[1])
@@ -192,7 +192,8 @@ class TelemetryReceiver(QThread):
                                             current_t = packet_count * 0.01
                                             packet_count += 1
                                             self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, current_a, motor_power_w))
-                                except ValueError:
+                                except ValueError as ve:
+                                    print(f"[Telemetry Warning] Dropped malformed packet: '{clean_line}' ({ve})")
                                     pass 
                                     
                         except socket.timeout:
@@ -807,6 +808,7 @@ class ThesisDashboard(QMainWindow):
             return
 
         self.table_model.add_rows(batch_data)
+        #self.data_table.scrollToBottom() # AUTO-SCROLL FIX: Ensure the table always follows the newest row
 
         plot_data = self.table_model.get_plot_columns(self.config.PLOT_WINDOW_SIZE)
         if not plot_data:
@@ -834,14 +836,16 @@ class ThesisDashboard(QMainWindow):
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
 
-            curr_data = plot_data[4]
-            pwr_data = plot_data[5]
-            if curr_data and pwr_data:
-                curr_win = min(tach_ticks, len(curr_data))
-                pwr_win = min(tach_ticks, len(pwr_data))
-                curr_avg = (sum(curr_data[-curr_win:]) / curr_win) if curr_win > 0 else 0.0
-                pwr_avg = (sum(pwr_data[-pwr_win:]) / pwr_win) if pwr_win > 0 else 0.0
-                self.power_plot.setTitle(f"Motor Power vs. Time ({curr_avg:.2f} A | {pwr_avg:.1f} W)")
+            # ADDED: Safe extraction and title updating for the Motor Power graph
+            if len(plot_data) > 5:
+                curr_data = plot_data[4]
+                pwr_data = plot_data[5]
+                if curr_data and pwr_data:
+                    curr_win = min(tach_ticks, len(curr_data))
+                    pwr_win = min(tach_ticks, len(pwr_data))
+                    curr_avg = (sum(curr_data[-curr_win:]) / curr_win) if curr_win > 0 else 0.0
+                    pwr_avg = (sum(pwr_data[-pwr_win:]) / pwr_win) if pwr_win > 0 else 0.0
+                    self.power_plot.setTitle(f"Motor Power vs. Time (Live: {curr_avg:.2f} A | {pwr_avg:.1f} W)")
 
     def export_data(self) -> None:
         if self.table_model.rowCount() == 0:
