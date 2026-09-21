@@ -164,38 +164,30 @@ class TelemetryReceiver(QThread):
                             buffer += chunk
                             while "\n" in buffer:
                                 line, buffer = buffer.split("\n", 1)
-                                clean_line = line.strip() 
-                                if not clean_line: continue
+                                if not line.strip(): continue
                                     
                                 try:
-                                    parts = clean_line.split(",")
-                                    if len(parts) >= 3:
-                                        raw_rpm = float(parts[0])
-                                        filt_rpm = float(parts[1])
-                                        revolutions = int(parts[2])
-                                        
-                                        # Default to 0.0 if network drops the payload 
-                                        current_a = float(parts[3]) if len(parts) > 3 else 0.0
-                                        motor_power_w = float(parts[4]) if len(parts) > 4 else 0.0
+                                    raw_rpm_str, filt_rpm_str, revs_str = line.split(",")
+                                    raw_rpm, filt_rpm, revolutions = float(raw_rpm_str), float(filt_rpm_str), int(revs_str)
 
-                                        if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
-                                            if current_mode != 3:
-                                                self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
-                                                current_mode = 3
-                                            continue 
+                                    if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
+                                        if current_mode != 3:
+                                            self.status_signal.emit("SYSTEM LOCKED: MATLAB Mode 3 Active", "#ff0000")
+                                            current_mode = 3
+                                        continue 
 
-                                        else:
-                                            if current_mode != 2 or start_time is None:
-                                                self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
-                                                start_time = True
-                                                packet_count = 0
-                                                current_mode = 2
-                                                
-                                            current_t = packet_count * 0.01
-                                            packet_count += 1
-                                            self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, current_a, motor_power_w))
+                                    else:
+                                        if current_mode != 2 or start_time is None:
+                                            self.status_signal.emit("Connected: Mode 2 Active", "#3fb950")
+                                            start_time = True
+                                            packet_count = 0
+                                            current_mode = 2
+                                            
+                                        current_t = packet_count * 0.01
+                                        packet_count += 1
+                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions))
                                 except ValueError:
-                                    pass # Ignore corrupted network packets naturally
+                                    pass 
                                     
                         except socket.timeout:
                             continue 
@@ -249,8 +241,7 @@ class TelemetryReceiver(QThread):
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self, max_rows: int):
         super().__init__()
-        # Expanded headers to hold Current and Motor Power
-        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Current (A)", "Motor Power (W)", "Torque", "Fluid Power (W)", "N_Re", "N_Po"]
+        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po"]
         self.max_rows = max_rows
         self.dataset: List[Tuple[float, ...]] = []
 
@@ -261,8 +252,8 @@ class TelemetryTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
-            if index.column() in (0, 1, 2, 4, 5, 8): return f"{val:.2f}"
-            if index.column() in (6, 7, 9): return f"{val:.3f}"
+            if index.column() in (0, 1, 2, 6): return f"{val:.2f}"
+            if index.column() in (4, 5, 7): return f"{val:.3f}"
             if index.column() == 3: return f"{int(val)}"
         if role == Qt.ItemDataRole.TextAlignmentRole: return Qt.AlignmentFlag.AlignCenter
         return None
@@ -645,7 +636,7 @@ class ThesisDashboard(QMainWindow):
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
 
-        self.power_plot = plot_layout.addPlot(title="Motor Power vs. Time", row=0, col=1)  # type: ignore
+        self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
         self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
 
@@ -715,7 +706,6 @@ class ThesisDashboard(QMainWindow):
         self.power_line.setData([], [])
         self.npo_scatter.setData([], [])
         self.rpm_plot.setTitle("Velocity vs. Time")
-        self.power_plot.setTitle("Motor Power vs. Time")
 
     def _on_hardware_config_changed(self) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
@@ -799,10 +789,10 @@ class ThesisDashboard(QMainWindow):
 
         while not self.telemetry_queue.empty():
             try:
-                timestamp, raw_rpm, filt_rpm, revolutions, current_a, motor_power_w = self.telemetry_queue.get_nowait()
+                timestamp, raw_rpm, filt_rpm, revolutions = self.telemetry_queue.get_nowait()
                 torque_val = 0.0
-                fluid_power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
-                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, current_a, motor_power_w, torque_val, fluid_power_w, n_re, n_po))
+                power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
+                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po))
             except queue.Empty:
                 break
 
@@ -810,7 +800,6 @@ class ThesisDashboard(QMainWindow):
             return
 
         self.table_model.add_rows(batch_data)
-       #self.data_table.scrollToBottom()
 
         plot_data = self.table_model.get_plot_columns(self.config.PLOT_WINDOW_SIZE)
         if not plot_data:
@@ -822,12 +811,11 @@ class ThesisDashboard(QMainWindow):
         
         self.rpm_raw_line.setData(t_data, raw_rpm_data)
         self.rpm_filt_line.setData(t_data, filt_rpm_data)
+        self.torque_line.setData(t_data, plot_data[4])
+        self.power_line.setData(t_data, plot_data[5])
         
-        self.torque_line.setData(t_data, plot_data[6]) 
-        self.power_line.setData(t_data, plot_data[5]) 
-        
-        nre_safe = [max(x, 1e-5) for x in plot_data[8]]
-        npo_safe = [max(x, 1e-5) for x in plot_data[9]]
+        nre_safe = [max(x, 1e-5) for x in plot_data[6]]
+        npo_safe = [max(x, 1e-5) for x in plot_data[7]]
         self.npo_scatter.setData(nre_safe, npo_safe)
 
         tach_ticks = int(0.8 * self.hardware_hz)
@@ -837,16 +825,6 @@ class ThesisDashboard(QMainWindow):
             raw_avg = (sum(raw_rpm_data[-raw_win:]) / raw_win) if raw_win > 0 else 0.0
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
-
-            if len(plot_data) > 5:
-                curr_data = plot_data[4]
-                pwr_data = plot_data[5]
-                if curr_data and pwr_data:
-                    curr_win = min(tach_ticks, len(curr_data))
-                    pwr_win = min(tach_ticks, len(pwr_data))
-                    curr_avg = (sum(curr_data[-curr_win:]) / curr_win) if curr_win > 0 else 0.0
-                    pwr_avg = (sum(pwr_data[-pwr_win:]) / pwr_win) if pwr_win > 0 else 0.0
-                    self.power_plot.setTitle(f"Motor Power vs. Time (Live: {curr_avg:.2f} A | {pwr_avg:.1f} W)")
 
     def export_data(self) -> None:
         if self.table_model.rowCount() == 0:
@@ -878,12 +856,10 @@ class ThesisDashboard(QMainWindow):
                 "Raw_RPM": np.array(full_data[1]),
                 "Filtered_RPM": np.array(full_data[2]),
                 "Revolutions": np.array(full_data[3]),
-                "Current_A": np.array(full_data[4]),
-                "Motor_Power_W": np.array(full_data[5]),
-                "Torque_Nm": np.array(full_data[6]), 
-                "Fluid_Power_W": np.array(full_data[7]),
-                "N_Re": np.array(full_data[8]), 
-                "N_Po": np.array(full_data[9])
+                "Torque_Nm": np.array(full_data[4]), 
+                "Power_W": np.array(full_data[5]),
+                "N_Re": np.array(full_data[6]), 
+                "N_Po": np.array(full_data[7])
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
