@@ -1,0 +1,125 @@
+12v run
+
+6.85 total kg
+
+.85kg tank
+
+6 liters of water
+
+1:11.91 time to zero point
+
+2nd run:
+
+1:23.39 time to zero point
+
+3rd run:
+
+1:21.26 time to zero point
+
+
+4th run:
+1:16.16 time to zero point
+
+5th run:
+1:17.09 time to zero point
+
+6th run:
+1:25.93 time to zero point
+
+7th run
+
+
+
+
+
+
+60 second run of solenoid valve
+1st run
+21 cm above fitting
+5.85 kg total weight
+0.85 tank
+5 liters 
+
+2nd run:
+21 cm above fitting
+5.85 kg total weight
+0.85 tank
+5 liters
+
+3rd run:
+21 cm above fitting
+5.85 kg total weight
+0.85 tank
+5 liters
+
+4th run:
+21 cm above fitting
+5.85 kg total weight
+0.85 tank
+5 liters
+
+5th run:
+21 cm above fitting
+5.85 kg total weight
+0.85 tank
+5 liters
+
+
+75 seconds run:
+1st run:
+21 cm above fitting
+6.60 kg total weight
+0.85 tank
+
+2nd run:
+21 cm above fitting
+6.60 kg total weight
+0.85 tank
+
+3rd run:
+21 cm above fitting
+6.60 kg total weight
+0.85 tank
+
+4th run:
+21 cm above fitting
+6.60 kg total weight
+0.85 tank
+
+5th run:
+21 cm above fitting
+6.60 kg total weight
+0.85 tank
+
+
+
+6v run
+1st run:
+21 cm above fitting
+5.75 total weight
+0.85 tank
+
+2nd run:
+21 cm above fitting
+5.75 total weight
+0.85 tank
+
+3rd run:
+21 cm above fitting
+5.75 total weight
+0.85 tank
+
+4th run:
+21 cm above fitting
+5.75 total weight
+0.85 tank
+
+5th run:
+21 cm above fitting
+5.40 total weight
+0.85 tank
+
+6th run:
+21 cm above fitting
+5.75 total weight
+0.85 tank
