@@ -78,7 +78,7 @@ def plot_isolated_events():
         
         # Widened window to capture open-loop exponential recovery settling times
         window_start = event_t - 5
-        window_end = event_t + 25 
+        window_end = event_t + 20 
         df_zoom = df_ol[(df_ol['t (s)'] >= window_start) & (df_ol['t (s)'] <= window_end)]
         
         ax.plot(df_zoom['t (s)'], df_zoom['Raw RPM'], color='gray', alpha=0.4, label='Raw RPM', linewidth=1)
