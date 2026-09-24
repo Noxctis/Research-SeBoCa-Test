@@ -41,14 +41,18 @@ summary = df.groupby('TargetLevel_mm').agg(
 summary.to_csv(os.path.join(OUTPUT_DIR, "raw_error_summary.csv"), index=False, float_format="%.2f")
 
 # ---------------------------------------------------------
-# CALCULATIONS (Pylance / Strict Type-Check Fix)
+# CALCULATIONS (Pylance Type-Safe Fix via NumPy)
 # ---------------------------------------------------------
 rmse_raw = float(np.sqrt(mean_squared_error(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'])))
 
-reg_res = linregress(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'])
-slope = float(reg_res.slope)
-intercept = float(reg_res.intercept)
-r_value = float(reg_res.rvalue)
+# Convert to pure arrays and pass through np.asarray() so Pylance statically recognizes the floats
+x_data = df['PhysicalMeasure_mm'].to_numpy(dtype=float)
+y_data = df['CalculatedFluid_mm'].to_numpy(dtype=float)
+
+reg_res = np.asarray(linregress(x_data, y_data))
+slope = float(reg_res[0])
+intercept = float(reg_res[1])
+r_value = float(reg_res[2])
 
 max_val = max(df['PhysicalMeasure_mm'].max(), df['CalculatedFluid_mm'].max()) + 10
 levels = df['TargetLevel_mm'].unique()
@@ -80,7 +84,6 @@ def plot_regression(ax):
     ax.scatter(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'], 
                c='#1f77b4', alpha=0.6, edgecolor='k', s=40, label='Raw Data Points', zorder=2)
     
-    # Using 'fr' (formatted raw string) to ensure LaTeX renders the R^2 correctly
     label_str = fr"Linear Fit: \(y = {slope:.4f}x {intercept_str}\)" + "\n" + fr"\(R^2 = {r_value**2:.4f}\)"
     
     ax.plot(x_vals, y_vals, 'b--', linewidth=2, label=label_str, zorder=3)
@@ -103,7 +106,7 @@ def plot_error(ax):
 # ---------------------------------------------------------
 # FIGURE GENERATION & EXPORT
 # ---------------------------------------------------------
-# Combined Plot
+# 1. Combined Plot
 fig_combined, axes = plt.subplots(1, 3, figsize=(18, 6))
 plot_parity(axes[0])
 plot_regression(axes[1])
@@ -113,7 +116,7 @@ fig_combined.savefig(os.path.join(OUTPUT_DIR, "combined_linearity_regression_pro
 fig_combined.savefig(os.path.join(OUTPUT_DIR, "combined_linearity_regression_profile.pdf"))
 plt.close(fig_combined)
 
-# Separate Plot 1: Parity
+# 2. Separate Plot 1: Parity
 fig1, ax1 = plt.subplots(figsize=(7, 6))
 plot_parity(ax1)
 fig1.tight_layout()
@@ -121,7 +124,7 @@ fig1.savefig(os.path.join(OUTPUT_DIR, "fig1_system_measurement_linearity.png"), 
 fig1.savefig(os.path.join(OUTPUT_DIR, "fig1_system_measurement_linearity.pdf"))
 plt.close(fig1)
 
-# Separate Plot 2: Regression 
+# 3. Separate Plot 2: Regression
 fig2, ax2 = plt.subplots(figsize=(7, 6))
 plot_regression(ax2)
 fig2.tight_layout()
@@ -129,7 +132,7 @@ fig2.savefig(os.path.join(OUTPUT_DIR, "fig2_linear_regression_analysis.png"), dp
 fig2.savefig(os.path.join(OUTPUT_DIR, "fig2_linear_regression_analysis.pdf"))
 plt.close(fig2)
 
-# Separate Plot 3: Error Profile
+# 4. Separate Plot 3: Error Profile
 fig3, ax3 = plt.subplots(figsize=(7, 6))
 plot_error(ax3)
 fig3.tight_layout()
@@ -137,4 +140,4 @@ fig3.savefig(os.path.join(OUTPUT_DIR, "fig3_absolute_error_profile.png"), dpi=30
 fig3.savefig(os.path.join(OUTPUT_DIR, "fig3_absolute_error_profile.pdf"))
 plt.close(fig3)
 
-print(f"[SUCCESS] All plots saved with proper mathematical formatting to '{OUTPUT_DIR}/'")
+print(f"[SUCCESS] All individual and combined plots saved to '{OUTPUT_DIR}/'")
