@@ -45,7 +45,6 @@ summary.to_csv(os.path.join(OUTPUT_DIR, "raw_error_summary.csv"), index=False, f
 # ---------------------------------------------------------
 rmse_raw = float(np.sqrt(mean_squared_error(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'])))
 
-# Convert to pure arrays and pass through np.asarray() so Pylance statically recognizes the floats
 x_data = df['PhysicalMeasure_mm'].to_numpy(dtype=float)
 y_data = df['CalculatedFluid_mm'].to_numpy(dtype=float)
 
@@ -60,7 +59,6 @@ levels.sort()
 means_raw = df.groupby('TargetLevel_mm')['Error_Raw'].mean()
 stds_raw = df.groupby('TargetLevel_mm')['Error_Raw'].std()
 
-# Format the intercept sign correctly to prevent "+ -0.14"
 intercept_str = f"+ {intercept:.4f}" if intercept >= 0 else f"- {abs(intercept):.4f}"
 
 # ---------------------------------------------------------
@@ -70,7 +68,7 @@ def plot_parity(ax):
     ax.plot([0, max_val], [0, max_val], 'k-', linewidth=1.5, label='Ideal 1:1 Response', zorder=1)
     ax.scatter(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'], 
                c='#d62728', alpha=0.75, edgecolor='k', s=50, marker='o', 
-               label=fr'Uncalibrated ToF (RMSE: {rmse_raw:.2f} mm)', zorder=2)
+               label=f'Uncalibrated ToF (RMSE: {rmse_raw:.2f} mm)', zorder=2)
     ax.set_title("System Measurement Linearity", fontweight='bold')
     ax.set_xlabel("True Physical Depth (mm)")
     ax.set_ylabel("System Calculated Depth (mm)")
@@ -84,7 +82,8 @@ def plot_regression(ax):
     ax.scatter(df['PhysicalMeasure_mm'], df['CalculatedFluid_mm'], 
                c='#1f77b4', alpha=0.6, edgecolor='k', s=40, label='Raw Data Points', zorder=2)
     
-    label_str = fr"Linear Fit: \(y = {slope:.4f}x {intercept_str}\)" + "\n" + fr"\(R^2 = {r_value**2:.4f}\)"
+    # FORMATTING FIX: Using standard Unicode '²' to prevent Matplotlib font-switching
+    label_str = f"Linear Fit: y = {slope:.4f}x {intercept_str}\nR² = {r_value**2:.4f}"
     
     ax.plot(x_vals, y_vals, 'b--', linewidth=2, label=label_str, zorder=3)
     ax.set_title("Linear Regression Analysis", fontweight='bold')
@@ -140,4 +139,4 @@ fig3.savefig(os.path.join(OUTPUT_DIR, "fig3_absolute_error_profile.png"), dpi=30
 fig3.savefig(os.path.join(OUTPUT_DIR, "fig3_absolute_error_profile.pdf"))
 plt.close(fig3)
 
-print(f"[SUCCESS] All individual and combined plots saved to '{OUTPUT_DIR}/'")
+print(f"[SUCCESS] Exported flawlessly formatted plots to '{OUTPUT_DIR}/'")
