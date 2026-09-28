@@ -48,6 +48,7 @@ import logging
 import queue
 import signal
 import re
+import threading
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Any
@@ -72,7 +73,8 @@ logger = logging.getLogger("MIXR1")
 
 @dataclass
 class SystemConfig:
-    NETWORK_HOST: str = "mixr1.local"
+    # Set MIXR_HOST to the Pi's IP (e.g. 192.168.1.50) if mixr1.local (mDNS) does not resolve.
+    NETWORK_HOST: str = os.environ.get("MIXR_HOST", "mixr1.local")
     NETWORK_PORT: int = 5000
     RECONNECT_DELAY_SEC: float = 2.0
     MAX_TABLE_ROWS: int = 100000
@@ -110,19 +112,32 @@ class TelemetryReceiver(QThread):
         self.telemetry_queue = telemetry_queue
         self._is_running = True
         self._sock = None
-        self.cmd_queue = queue.Queue()
         self._reset_flag = False
+
+        # Pending outbound commands. Only the newest TARGET (RPM/PWM) is kept;
+        # config commands (CPR/WIN) are never dropped by a later target update.
+        self._cmd_lock = threading.Lock()
+        self._cmd_pending: dict = {}
 
     def reset_time(self) -> None:
         self._reset_flag = True
 
     def send_command(self, cmd_string: str) -> None:
-        while not self.cmd_queue.empty():
-            try:
-                self.cmd_queue.get_nowait()
-            except queue.Empty:
-                break
-        self.cmd_queue.put(cmd_string)
+        with self._cmd_lock:
+            for line in cmd_string.strip().split("\n"):
+                if not line:
+                    continue
+                key = line.split(",")[0]
+                if key in ("CMD:RPM", "CMD:PWM"):
+                    key = "TARGET"
+                self._cmd_pending.pop(key, None)
+                self._cmd_pending[key] = line + "\n"
+
+    def _take_commands(self) -> str:
+        with self._cmd_lock:
+            payload = "".join(self._cmd_pending.values())
+            self._cmd_pending.clear()
+            return payload
 
     def run(self) -> None:
         while self._is_running:
@@ -153,9 +168,9 @@ class TelemetryReceiver(QThread):
                                     
                             self._reset_flag = False
 
-                        while not self.cmd_queue.empty():
-                            outbound = self.cmd_queue.get()
-                            s.sendall(outbound.encode('utf-8'))
+                        payload = self._take_commands()
+                        if payload:
+                            s.sendall(payload.encode('utf-8'))
 
                         try:
                             chunk = s.recv(1024).decode('utf-8', errors='ignore')
@@ -192,14 +207,16 @@ class TelemetryReceiver(QThread):
                         except socket.timeout:
                             continue 
                             
-                    while not self.cmd_queue.empty():
-                        try:
-                            s.sendall(self.cmd_queue.get().encode('utf-8'))
-                        except Exception:
-                            break
+                    try:
+                        payload = self._take_commands()
+                        if payload:
+                            s.sendall(payload.encode('utf-8'))
+                    except Exception:
+                        pass
                     self._sock = None
                             
             except Exception:
+                self._sock = None
                 self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
                 for _ in range(int(self.config.RECONNECT_DELAY_SEC * 10)):
                     if not self._is_running: break
@@ -207,10 +224,7 @@ class TelemetryReceiver(QThread):
 
     def stop(self) -> None:
         self._is_running = False
-        try:
-            self.cmd_queue.put_nowait("CMD:RPM,0\n")
-        except Exception:
-            pass
+        self.send_command("CMD:RPM,0\n")
 
         try:
             sock = self._sock
@@ -220,12 +234,12 @@ class TelemetryReceiver(QThread):
                 except Exception:
                     pass
 
-                while not self.cmd_queue.empty():
-                    try:
-                        cmd = self.cmd_queue.get_nowait()
-                        sock.sendall(cmd.encode('utf-8'))
-                    except (queue.Empty, Exception):
-                        break
+                try:
+                    payload = self._take_commands()
+                    if payload:
+                        sock.sendall(payload.encode('utf-8'))
+                except Exception:
+                    pass
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
                     sock.close()
@@ -752,6 +766,11 @@ class ThesisDashboard(QMainWindow):
             self.step_test_win = StepTestWindow(mode, self)
             self.step_test_win.test_thread.target_update_signal.connect(self.target_slider.setValue)
             self.step_test_win.test_started_signal.connect(self.reset_telemetry)
+            # Lock the control-mode selector while a test runs so the slider range
+            # (RPM vs %) can't change under the test's step values.
+            self.step_test_win.test_started_signal.connect(lambda: self.control_mode_cb.setEnabled(False))
+            self.step_test_win.test_thread.finished_signal.connect(
+                lambda: self.control_mode_cb.setEnabled(self._last_status != "Mode 3"))
         self.step_test_win.show()
         self.step_test_win.raise_()
         self.step_test_win.activateWindow()
@@ -790,7 +809,7 @@ class ThesisDashboard(QMainWindow):
         while not self.telemetry_queue.empty():
             try:
                 timestamp, raw_rpm, filt_rpm, revolutions = self.telemetry_queue.get_nowait()
-                torque_val = 0.0
+                torque_val = 0.0  # NOTE: no torque sensor yet -> Power / N_Po stay 0
                 power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
                 batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po))
             except queue.Empty:
@@ -868,6 +887,10 @@ class ThesisDashboard(QMainWindow):
     def update_status(self, msg: str, color: str) -> None:
         self.status_lbl.setText(f"Status: {msg}")
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {color}; font-size: 14px; padding: 10px;")
+
+        # Link lost: forget the last state so config + target are re-sent on reconnect.
+        if "Searching" in msg:
+            self._last_status = "Disconnected"
 
         if "MATLAB Mode 3 Active" in msg:
             self._last_status = "Mode 3"
