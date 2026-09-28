@@ -731,10 +731,8 @@ class ThesisDashboard(QMainWindow):
             
             self.reset_telemetry()
 
-    def _on_control_mode_changed(self, index: int) -> None:
-        self.target_slider.blockSignals(True)
-        self.target_input.blockSignals(True)
-        
+    def _apply_mode_ui(self, index: int) -> None:
+        """Update label/range for the control mode WITHOUT sending anything."""
         if index == 0:
             self.target_lbl.setText("Target Speed (RPM):")
             self.target_slider.setRange(0, 2500)
@@ -743,13 +741,18 @@ class ThesisDashboard(QMainWindow):
             self.target_lbl.setText("Target Duty Cycle (%):")
             self.target_slider.setRange(0, 100)
             self.target_input.setRange(0, 100)
-            
+
+    def _on_control_mode_changed(self, index: int) -> None:
+        self.target_slider.blockSignals(True)
+        self.target_input.blockSignals(True)
+
+        self._apply_mode_ui(index)
         self.target_slider.setValue(0)
         self.target_input.setValue(0)
-        
+
         self.target_slider.blockSignals(False)
         self.target_input.blockSignals(False)
-        
+
         self._on_target_changed(0)
 
     def _on_target_changed(self, value: int) -> None:
