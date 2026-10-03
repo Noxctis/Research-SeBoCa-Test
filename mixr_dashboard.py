@@ -60,7 +60,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
     QComboBox, QTableView, QHeaderView, QGroupBox, QFormLayout, QPushButton, 
     QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, 
-    QSpinBox, QDialog, QProgressBar, QInputDialog
+    QSpinBox, QDoubleSpinBox, QDialog, QProgressBar, QInputDialog
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex, QTimer
 from PyQt6.QtGui import QCloseEvent
@@ -148,6 +148,10 @@ class TelemetryReceiver(QThread):
                     s.settimeout(3.0)
                     s.connect((self.config.NETWORK_HOST, self.config.NETWORK_PORT))
                     
+                    # Ask the Pi for the extended packet (adds PWM % and PI target). An older
+                    # daemon ignores this and keeps sending the 3-field packet, which still works.
+                    self.send_command("CMD:EXT,1\n")
+                    
                     s.settimeout(0.01) 
                     
                     buffer = ""
@@ -182,8 +186,14 @@ class TelemetryReceiver(QThread):
                                 if not line.strip(): continue
                                     
                                 try:
-                                    raw_rpm_str, filt_rpm_str, revs_str = line.split(",")
-                                    raw_rpm, filt_rpm, revolutions = float(raw_rpm_str), float(filt_rpm_str), int(revs_str)
+                                    fields = line.split(",")
+                                    if len(fields) not in (3, 6):
+                                        raise ValueError("unexpected field count")
+                                    raw_rpm, filt_rpm, revolutions = float(fields[0]), float(fields[1]), int(fields[2])
+                                    if len(fields) == 6:      # extended: raw, feedback, revs, pwm %, target RPM, uptime
+                                        pwm_pct, target_rpm = float(fields[3]), float(fields[4])
+                                    else:                     # legacy: no PWM / target available
+                                        pwm_pct, target_rpm = float("nan"), float("nan")
 
                                     if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
                                         if current_mode != 3:
@@ -200,7 +210,7 @@ class TelemetryReceiver(QThread):
                                             
                                         current_t = packet_count * 0.01
                                         packet_count += 1
-                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions))
+                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm))
                                 except ValueError:
                                     pass 
                                     
@@ -255,7 +265,7 @@ class TelemetryReceiver(QThread):
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self, max_rows: int):
         super().__init__()
-        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po"]
+        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po", "PWM (%)", "Target RPM"]
         self.max_rows = max_rows
         self.dataset: List[Tuple[float, ...]] = []
 
@@ -266,6 +276,7 @@ class TelemetryTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
+            if index.column() in (8, 9): return "-" if val != val else f"{val:.2f}"   # NaN = not sent by Pi
             if index.column() in (0, 1, 2, 6): return f"{val:.2f}"
             if index.column() in (4, 5, 7): return f"{val:.3f}"
             if index.column() == 3: return f"{int(val)}"
@@ -621,6 +632,37 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
+        tuning_group = QGroupBox("PI Tuning (live, sent to Pi)")
+        tuning_layout = QFormLayout()
+        spin_style = "QDoubleSpinBox { background-color: #21262d; color: #58a6ff; border: 1px solid #30363d; border-radius: 4px; padding: 4px; font-weight: bold; min-width: 90px; }"
+
+        self.kp_spin = QDoubleSpinBox()
+        self.kp_spin.setDecimals(4); self.kp_spin.setRange(0.0, 50.0); self.kp_spin.setSingleStep(0.1)
+        self.kp_spin.setValue(1.5641); self.kp_spin.setStyleSheet(spin_style)
+
+        self.ki_spin = QDoubleSpinBox()
+        self.ki_spin.setDecimals(3); self.ki_spin.setRange(0.0, 500.0); self.ki_spin.setSingleStep(1.0)
+        self.ki_spin.setValue(41.2249); self.ki_spin.setStyleSheet(spin_style)
+
+        self.alpha_spin = QDoubleSpinBox()
+        self.alpha_spin.setDecimals(2); self.alpha_spin.setRange(0.01, 1.0); self.alpha_spin.setSingleStep(0.05)
+        self.alpha_spin.setValue(1.0); self.alpha_spin.setStyleSheet(spin_style)
+
+        self.btn_apply_gains = QPushButton("Apply to Pi")
+        self.btn_apply_gains.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 6px; border-radius: 4px; }")
+        self.btn_apply_gains.clicked.connect(self._on_apply_gains)
+
+        self.gain_status_lbl = QLabel("Not applied yet - Pi is using its config.hpp values")
+        self.gain_status_lbl.setStyleSheet("font-size: 11px; color: #8b949e; font-weight: normal;")
+
+        tuning_layout.addRow("Kp:", self.kp_spin)
+        tuning_layout.addRow("Ki:", self.ki_spin)
+        tuning_layout.addRow("Feedback α (1 = off):", self.alpha_spin)
+        tuning_layout.addRow(self.btn_apply_gains)
+        tuning_layout.addRow(self.gain_status_lbl)
+        tuning_group.setLayout(tuning_layout)
+        left_panel.addWidget(tuning_group)
+
         table_group = QGroupBox("Live Data Log")
         table_layout = QVBoxLayout()
         
@@ -649,6 +691,7 @@ class ThesisDashboard(QMainWindow):
         self.rpm_plot.setMouseEnabled(y=False)
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#58a6ff', width=2))
+        self.target_line = self.rpm_plot.plot([], [], pen=pg.mkPen(color='#c9d1d9', width=1, style=Qt.PenStyle.DotLine), connect='finite')
 
         self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -663,8 +706,16 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
 
+        self.pwm_plot = plot_layout.addPlot(title="PWM Command vs. Time", row=2, col=0, colspan=2)  # type: ignore
+        self.pwm_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.pwm_plot.setYRange(0, 100)
+        self.pwm_plot.setMouseEnabled(y=False)
+        self.pwm_plot.setXLink(self.rpm_plot)
+        self.pwm_line = self.pwm_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=1), connect='finite')
+
         group_box_style = "QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 24px; padding-top: 24px; font-weight: bold; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; top: 4px; padding: 0 6px; color: #ffffff; }"
         control_group.setStyleSheet(group_box_style)
+        tuning_group.setStyleSheet(group_box_style)
         table_group.setStyleSheet(group_box_style)
 
         self.stacked_widget.addWidget(page_widget)
@@ -719,7 +770,10 @@ class ThesisDashboard(QMainWindow):
         self.torque_line.setData([], [])
         self.power_line.setData([], [])
         self.npo_scatter.setData([], [])
+        self.pwm_line.setData([], [])
+        self.target_line.setData([], [])
         self.rpm_plot.setTitle("Velocity vs. Time")
+        self.pwm_plot.setTitle("PWM Command vs. Time")
 
     def _on_hardware_config_changed(self) -> None:
         if hasattr(self, 'network_thread') and self.network_thread.isRunning():
@@ -811,10 +865,10 @@ class ThesisDashboard(QMainWindow):
 
         while not self.telemetry_queue.empty():
             try:
-                timestamp, raw_rpm, filt_rpm, revolutions = self.telemetry_queue.get_nowait()
+                timestamp, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm = self.telemetry_queue.get_nowait()
                 torque_val = 0.0  # NOTE: no torque sensor yet -> Power / N_Po stay 0
                 power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
-                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po))
+                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po, pwm_pct, target_rpm))
             except queue.Empty:
                 break
 
@@ -833,6 +887,10 @@ class ThesisDashboard(QMainWindow):
         
         self.rpm_raw_line.setData(t_data, raw_rpm_data)
         self.rpm_filt_line.setData(t_data, filt_rpm_data)
+        self.pwm_line.setData(t_data, plot_data[8])
+        tgt_arr = np.asarray(plot_data[9], dtype=float)
+        self.target_line.setData(t_data, np.where(tgt_arr > 0, tgt_arr, np.nan))   # hide target when open-loop
+        self._update_jitter_title(plot_data[8])
         self.torque_line.setData(t_data, plot_data[4])
         self.power_line.setData(t_data, plot_data[5])
         
@@ -847,6 +905,22 @@ class ThesisDashboard(QMainWindow):
             raw_avg = (sum(raw_rpm_data[-raw_win:]) / raw_win) if raw_win > 0 else 0.0
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
+
+    def _update_jitter_title(self, pwm_col) -> None:
+        """Rolling 3 s PWM statistics: the number to minimise when comparing Kp / alpha settings."""
+        pw = np.asarray(pwm_col[-int(3 * self.hardware_hz):], dtype=float)
+        if len(pw) > 5 and np.isfinite(pw).all():
+            std = float(np.std(pw))
+            jitter = float(np.sqrt(np.mean(np.diff(pw) ** 2)))
+            self.pwm_plot.setTitle(f"PWM Command vs. Time (last 3 s: std {std:.3f}% | jitter {jitter:.3f}%)")
+        else:
+            self.pwm_plot.setTitle("PWM Command vs. Time (waiting for extended telemetry...)")
+
+    def _on_apply_gains(self) -> None:
+        if hasattr(self, 'network_thread') and self.network_thread.isRunning():
+            kp, ki, alpha = self.kp_spin.value(), self.ki_spin.value(), self.alpha_spin.value()
+            self.network_thread.send_command(f"CMD:KP,{kp:.4f}\nCMD:KI,{ki:.4f}\nCMD:ALPHA,{alpha:.3f}\n")
+            self.gain_status_lbl.setText(f"Sent: Kp={kp:.4f}  Ki={ki:.3f}  alpha={alpha:.2f}")
 
     def export_data(self) -> None:
         if self.table_model.rowCount() == 0:
@@ -881,7 +955,9 @@ class ThesisDashboard(QMainWindow):
                 "Torque_Nm": np.array(full_data[4]), 
                 "Power_W": np.array(full_data[5]),
                 "N_Re": np.array(full_data[6]), 
-                "N_Po": np.array(full_data[7])
+                "N_Po": np.array(full_data[7]),
+                "PWM_pct": np.array(full_data[8]),
+                "Target_RPM": np.array(full_data[9])
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
