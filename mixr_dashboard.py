@@ -103,6 +103,19 @@ class FluidCalculations:
 # ==========================================
 # MODULE 1: BI-DIRECTIONAL NETWORK THREAD
 # ==========================================
+def describe_connect_error(exc: BaseException, host: str, port: int) -> str:
+    """One short, specific reason for a failed connection, shown in the status bar instead of a bare 'Searching...'."""
+    if isinstance(exc, socket.gaierror):
+        return f"cannot find '{host}' on the network: set MIXR_HOST to the Pi's IP address (on the Pi: hostname -I)"
+    if isinstance(exc, ConnectionRefusedError):
+        return f"{host}:{port} refused: the daemon is NOT running on the Pi (start: sudo ./mixr1_daemon)"
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return f"{host}:{port} timed out: the Pi is unreachable (wrong IP / not on the same network) or its firewall blocks the port"
+    if isinstance(exc, ConnectionResetError):
+        return "connection reset by the Pi (the daemon stopped or was replaced)"
+    return f"{type(exc).__name__}: {exc}"
+
+
 class TelemetryReceiver(QThread):
     status_signal = pyqtSignal(str, str)
 
@@ -147,6 +160,12 @@ class TelemetryReceiver(QThread):
                     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     s.settimeout(3.0)
                     s.connect((self.config.NETWORK_HOST, self.config.NETWORK_PORT))
+                    connect_time = time.time()
+                    warned_silent = False
+                    # SAFETY: a motor target set while the daemon was offline stays queued. It must NOT start the motor by itself the moment the
+                    # daemon comes up (the daemon also resets its own dashboard target to 0 on every new connection).
+                    with self._cmd_lock:
+                        self._cmd_pending.pop("TARGET", None)
                     
                     # Ask the Pi for the extended packet (adds PWM % and PI target). An older
                     # daemon ignores this and keeps sending the 3-field packet, which still works.
@@ -210,11 +229,16 @@ class TelemetryReceiver(QThread):
                                             
                                         current_t = packet_count * 0.01
                                         packet_count += 1
+                                        warned_silent = True          # data is flowing: no silence warning needed
                                         self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm))
                                 except ValueError:
                                     pass 
                                     
                         except socket.timeout:
+                            if (not warned_silent) and packet_count == 0 and (time.time() - connect_time) > 5.0:
+                                warned_silent = True
+                                self.status_signal.emit("Connected to the port but NO DATA for 5 s: the daemon is not serving "
+                                                        "(a stale or suspended daemon holds port 5000, or it is stuck starting). On the Pi: pgrep -a mixr1_daemon", "#d29922")
                             continue 
                             
                     try:
@@ -225,9 +249,9 @@ class TelemetryReceiver(QThread):
                         pass
                     self._sock = None
                             
-            except Exception:
+            except Exception as exc:
                 self._sock = None
-                self.status_signal.emit("Searching for MIXR-1 Node...", "#f85149")
+                self.status_signal.emit("Searching for MIXR-1 Node... (" + describe_connect_error(exc, self.config.NETWORK_HOST, self.config.NETWORK_PORT) + ")", "#f85149")
                 for _ in range(int(self.config.RECONNECT_DELAY_SEC * 10)):
                     if not self._is_running: break
                     time.sleep(0.1)
