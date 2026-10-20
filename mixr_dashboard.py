@@ -170,6 +170,8 @@ class TelemetryReceiver(QThread):
                     # Ask the Pi for the extended packet (adds PWM % and PI target). An older
                     # daemon ignores this and keeps sending the 3-field packet, which still works.
                     self.send_command("CMD:EXT,1\n")
+                    # Also ask for the wattmeter fields (bus V, current mA, electrical power W). A daemon without this feature ignores it.
+                    self.send_command("CMD:POWER,1\n")
                     
                     s.settimeout(0.01) 
                     
@@ -206,13 +208,17 @@ class TelemetryReceiver(QThread):
                                     
                                 try:
                                     fields = line.split(",")
-                                    if len(fields) not in (3, 6):
+                                    if len(fields) not in (3, 6, 9):
                                         raise ValueError("unexpected field count")
                                     raw_rpm, filt_rpm, revolutions = float(fields[0]), float(fields[1]), int(fields[2])
-                                    if len(fields) == 6:      # extended: raw, feedback, revs, pwm %, target RPM, uptime
+                                    if len(fields) >= 6:      # extended: raw, feedback, revs, pwm %, target RPM, uptime
                                         pwm_pct, target_rpm = float(fields[3]), float(fields[4])
                                     else:                     # legacy: no PWM / target available
                                         pwm_pct, target_rpm = float("nan"), float("nan")
+                                    if len(fields) == 9:      # + wattmeter: bus V, current mA, electrical power W ("nan" = no reading)
+                                        bus_v, current_ma, elec_w = float(fields[6]), float(fields[7]), float(fields[8])
+                                    else:
+                                        bus_v = current_ma = elec_w = float("nan")
 
                                     if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
                                         if current_mode != 3:
@@ -230,7 +236,7 @@ class TelemetryReceiver(QThread):
                                         current_t = packet_count * 0.01
                                         packet_count += 1
                                         warned_silent = True          # data is flowing: no silence warning needed
-                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm))
+                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w))
                                 except ValueError:
                                     pass 
                                     
@@ -289,7 +295,7 @@ class TelemetryReceiver(QThread):
 class TelemetryTableModel(QAbstractTableModel):
     def __init__(self, max_rows: int):
         super().__init__()
-        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po", "PWM (%)", "Target RPM"]
+        self.headers = ["t (s)", "Raw RPM", "Filtered RPM", "Revolutions", "Torque", "Power (W)", "N_Re", "N_Po", "PWM (%)", "Target RPM", "Bus (V)", "Current (mA)", "Elec. Power (W)"]
         self.max_rows = max_rows
         self.dataset: List[Tuple[float, ...]] = []
 
@@ -300,7 +306,8 @@ class TelemetryTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         if role == Qt.ItemDataRole.DisplayRole:
             val = self.dataset[index.row()][index.column()]
-            if index.column() in (8, 9): return "-" if val != val else f"{val:.2f}"   # NaN = not sent by Pi
+            if index.column() in (8, 9, 10, 12): return "-" if val != val else f"{val:.2f}"   # NaN = not sent by Pi
+            if index.column() == 11: return "-" if val != val else f"{val:.0f}"
             if index.column() in (0, 1, 2, 6): return f"{val:.2f}"
             if index.column() in (4, 5, 7): return f"{val:.3f}"
             if index.column() == 3: return f"{int(val)}"
@@ -719,7 +726,9 @@ class ThesisDashboard(QMainWindow):
 
         self.power_plot = plot_layout.addPlot(title="Power vs. Time", row=0, col=1)  # type: ignore
         self.power_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2))
+        self.power_plot.addLegend(offset=(10, 10))
+        self.power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#3fb950', width=2), name="Shaft (torque x speed)")
+        self.elec_power_line = self.power_plot.plot([], [], pen=pg.mkPen(color='#f0883e', width=2), name="Electrical (wattmeter)", connect='finite')
 
         self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -793,6 +802,8 @@ class ThesisDashboard(QMainWindow):
         self.rpm_filt_line.setData([], [])
         self.torque_line.setData([], [])
         self.power_line.setData([], [])
+        self.elec_power_line.setData([], [])
+        self.power_plot.setTitle("Power vs. Time")
         self.npo_scatter.setData([], [])
         self.pwm_line.setData([], [])
         self.target_line.setData([], [])
@@ -889,10 +900,10 @@ class ThesisDashboard(QMainWindow):
 
         while not self.telemetry_queue.empty():
             try:
-                timestamp, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm = self.telemetry_queue.get_nowait()
+                timestamp, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w = self.telemetry_queue.get_nowait()
                 torque_val = 0.0  # NOTE: no torque sensor yet -> Power / N_Po stay 0
                 power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
-                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po, pwm_pct, target_rpm))
+                batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po, pwm_pct, target_rpm, bus_v, current_ma, elec_w))
             except queue.Empty:
                 break
 
@@ -917,6 +928,12 @@ class ThesisDashboard(QMainWindow):
         self._update_jitter_title(plot_data[8])
         self.torque_line.setData(t_data, plot_data[4])
         self.power_line.setData(t_data, plot_data[5])
+        self.elec_power_line.setData(t_data, plot_data[12])
+        last_w = plot_data[12][-1]
+        if last_w == last_w:
+            self.power_plot.setTitle(f"Power vs. Time (Electrical: {plot_data[10][-1]:.2f} V | {plot_data[11][-1]:.0f} mA | {last_w:.2f} W)")
+        else:
+            self.power_plot.setTitle("Power vs. Time (no wattmeter data)")
         
         nre_safe = [max(x, 1e-5) for x in plot_data[6]]
         npo_safe = [max(x, 1e-5) for x in plot_data[7]]
@@ -981,7 +998,10 @@ class ThesisDashboard(QMainWindow):
                 "N_Re": np.array(full_data[6]), 
                 "N_Po": np.array(full_data[7]),
                 "PWM_pct": np.array(full_data[8]),
-                "Target_RPM": np.array(full_data[9])
+                "Target_RPM": np.array(full_data[9]),
+                "Bus_V": np.array(full_data[10]),
+                "Current_mA": np.array(full_data[11]),
+                "Elec_Power_W": np.array(full_data[12])
             })
             QMessageBox.information(self, "Export Complete", f"Data successfully saved to:\n• {csv_file}\n• {mat_file}")
         except Exception as e:
