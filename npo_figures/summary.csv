@@ -1,0 +1,15 @@
+quantity,value
+rho_kg_m3,996.3
+mu_Pa_s,0.000854
+D_m,0.14028
+offset_removed_Nm,0.0
+cfd_valid_from_NRe,4000.0
+cfd_plateau_mean,0.7031333333333333
+cfd_plateau_std,0.02238579481554785
+exp_highRe_mean,1.0299913575600756
+exp_highRe_std,0.007298073936314836
+ratio_mean,0.5002916521542983
+ratio_std,0.12998857116796053
+torque_fit_a,0.007374720642045844
+torque_fit_b_per_rpm2,2.3906165222325284e-06
+torque_fit_R2,0.9999496764729222
