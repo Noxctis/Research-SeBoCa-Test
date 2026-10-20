@@ -172,6 +172,8 @@ class TelemetryReceiver(QThread):
                     self.send_command("CMD:EXT,1\n")
                     # Also ask for the wattmeter fields (bus V, current mA, electrical power W). A daemon without this feature ignores it.
                     self.send_command("CMD:POWER,1\n")
+                    # And the torque amplifier reading (Nm), if the daemon was started with --torque.
+                    self.send_command("CMD:TORQUE,1\n")
                     
                     s.settimeout(0.01) 
                     
@@ -208,17 +210,22 @@ class TelemetryReceiver(QThread):
                                     
                                 try:
                                     fields = line.split(",")
-                                    if len(fields) not in (3, 6, 9):
+                                    if len(fields) not in (3, 6, 7, 9, 10):
                                         raise ValueError("unexpected field count")
                                     raw_rpm, filt_rpm, revolutions = float(fields[0]), float(fields[1]), int(fields[2])
                                     if len(fields) >= 6:      # extended: raw, feedback, revs, pwm %, target RPM, uptime
                                         pwm_pct, target_rpm = float(fields[3]), float(fields[4])
                                     else:                     # legacy: no PWM / target available
                                         pwm_pct, target_rpm = float("nan"), float("nan")
-                                    if len(fields) == 9:      # + wattmeter: bus V, current mA, electrical power W ("nan" = no reading)
+                                    # optional trailing fields: wattmeter (bus V, mA, W) when 9 or 10 fields, torque (Nm) when 7 or 10 ("nan" = no reading)
+                                    if len(fields) in (9, 10):
                                         bus_v, current_ma, elec_w = float(fields[6]), float(fields[7]), float(fields[8])
                                     else:
                                         bus_v = current_ma = elec_w = float("nan")
+                                    if len(fields) in (7, 10):
+                                        torque_nm = float(fields[-1])
+                                    else:
+                                        torque_nm = float("nan")
 
                                     if raw_rpm == -2.0 and filt_rpm == -2.0 and revolutions == -2:
                                         if current_mode != 3:
@@ -236,7 +243,7 @@ class TelemetryReceiver(QThread):
                                         current_t = packet_count * 0.01
                                         packet_count += 1
                                         warned_silent = True          # data is flowing: no silence warning needed
-                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w))
+                                        self.telemetry_queue.put((current_t, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w, torque_nm))
                                 except ValueError:
                                     pass 
                                     
@@ -309,7 +316,8 @@ class TelemetryTableModel(QAbstractTableModel):
             if index.column() in (8, 9, 10, 12): return "-" if val != val else f"{val:.2f}"   # NaN = not sent by Pi
             if index.column() == 11: return "-" if val != val else f"{val:.0f}"
             if index.column() in (0, 1, 2, 6): return f"{val:.2f}"
-            if index.column() in (4, 5, 7): return f"{val:.3f}"
+            if index.column() == 4: return "-" if val != val else f"{val:.3f}"
+            if index.column() in (5, 7): return f"{val:.3f}"
             if index.column() == 3: return f"{int(val)}"
         if role == Qt.ItemDataRole.TextAlignmentRole: return Qt.AlignmentFlag.AlignCenter
         return None
@@ -732,7 +740,7 @@ class ThesisDashboard(QMainWindow):
 
         self.torque_plot = plot_layout.addPlot(title="Torque vs. Time", row=1, col=0)  # type: ignore
         self.torque_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2))
+        self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen(color='#ff7b72', width=2), connect='finite')
 
         self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
         self.npo_plot.setLogMode(x=True, y=True) 
@@ -900,9 +908,10 @@ class ThesisDashboard(QMainWindow):
 
         while not self.telemetry_queue.empty():
             try:
-                timestamp, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w = self.telemetry_queue.get_nowait()
-                torque_val = 0.0  # NOTE: no torque sensor yet -> Power / N_Po stay 0
-                power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val, rho, mu, d_m)
+                timestamp, raw_rpm, filt_rpm, revolutions, pwm_pct, target_rpm, bus_v, current_ma, elec_w, torque_nm = self.telemetry_queue.get_nowait()
+                # Measured torque (Nm) drives shaft Power and N_Po; without a torque sensor they stay 0 and the torque column shows "-"
+                torque_val = torque_nm if torque_nm == torque_nm else float("nan")
+                power_w, n_re, n_po = FluidCalculations.calculate_metrics(filt_rpm, torque_val if torque_val == torque_val else 0.0, rho, mu, d_m)
                 batch_data.append((timestamp, raw_rpm, filt_rpm, revolutions, torque_val, power_w, n_re, n_po, pwm_pct, target_rpm, bus_v, current_ma, elec_w))
             except queue.Empty:
                 break
