@@ -49,6 +49,7 @@ import queue
 import signal
 import re
 import threading
+from collections import deque
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Any
@@ -60,7 +61,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
     QComboBox, QTableView, QHeaderView, QGroupBox, QFormLayout, QPushButton, 
     QStackedWidget, QFrame, QSpacerItem, QSizePolicy, QMessageBox, QSlider, 
-    QSpinBox, QDoubleSpinBox, QDialog, QProgressBar, QInputDialog
+    QSpinBox, QDoubleSpinBox, QDialog, QProgressBar, QInputDialog, QLineEdit, QTableWidget, QTableWidgetItem, QPlainTextEdit, QCheckBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex, QTimer
 from PyQt6.QtGui import QCloseEvent
@@ -467,6 +468,652 @@ class StepTestWindow(QDialog):
         if a0 is not None:
             a0.accept()
 
+
+# ==========================================
+# LOAD-CELL (TORQUE SENSOR) TEST  -  runs on the live telemetry of the daemon (start it with  --torque )
+# ==========================================
+G_STD = 9.80665
+
+
+def _lc_num(text: str) -> float:
+    """float() that also accepts a decimal comma: '0,25' -> 0.25"""
+    return float(text.strip().replace(",", "."))
+
+
+def _lc_length_m(text: str) -> float:
+    """'150.5', '150,5mm', '15.5cm', '0.155m' -> metres. A bare number is ALWAYS millimetres."""
+    t = text.strip().lower().replace(" ", "").replace(",", ".")
+    for unit, factor in (("mm", 0.001), ("cm", 0.01), ("m", 1.0)):
+        if t.endswith(unit):
+            return float(t[: -len(unit)]) * factor
+    return float(t) / 1000.0
+
+
+def _lc_weight_g(text: str):
+    """'250', '250.5g', '0,25kg' -> (grams, was_ambiguous). A bare number is grams."""
+    t = text.strip().lower().replace(" ", "")
+    if t.endswith("kg"):
+        return _lc_num(t[:-2]) * 1000.0, False
+    if t.endswith("g"):
+        return _lc_num(t[:-1]), False
+    v = _lc_num(t)
+    return v, (0 < v < 10)
+
+
+class LoadCellTestWindow(QDialog):
+    """Load-cell test inside the dashboard: you give the lever arm and the real weights, it averages the torque the daemon streams
+    (live on the plot and in the main data log) and appends every trial to loadcell_test_<date>_<time>.csv. The CSV holds the dashboard
+    time of each trial (t_start_s, t_end_s) so the trial can be found again in the exported main recording."""
+    COLS = ["timestamp", "weight_g", "lever_arm_mm", "trial", "baseline_torque_Nm", "expected_torque_Nm", "reading", "reading_std",
+            "n_samples", "t_start_s", "t_end_s", "unit"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Load-Cell (Torque Sensor) Test")
+        self.setMinimumSize(760, 860)
+        self.setStyleSheet("QDialog { background-color: #161b22; color: #c9d1d9; } QLabel { color: #c9d1d9; } "
+                           "QGroupBox { border: 1px solid #30363d; border-radius: 4px; margin-top: 10px; padding-top: 8px; font-weight: bold; } "
+                           "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; } "
+                           "QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { background-color: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 3px; } "
+                           "QTableWidget { background-color: #0d1117; color: #c9d1d9; gridline-color: #30363d; } "
+                           "QHeaderView::section { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 3px; }")
+        self.rows: List[dict] = []
+        self._new_session_file()
+        self._hist = deque(maxlen=4000)            # (t, torque) of the last ~40 s, for the live plot
+        self._last_t: Optional[float] = None
+        self._last_v = float("nan")
+        self._state = "idle"                       # idle | settling | collecting | zero
+        self._buf: List[float] = []
+        self._ts: List[float] = []
+        self._t_settle_end = 0.0
+        self._t_end = 0.0
+        self._t_collect_start = 0.0
+        self._pending: dict = {}
+
+        lay = QVBoxLayout(self)
+
+        # --- live reading
+        self.live_lbl = QLabel("Torque: waiting for data ...")
+        self.live_lbl.setStyleSheet("font-size: 26px; font-weight: bold; color: #58a6ff;")
+        lay.addWidget(self.live_lbl)
+        self.hint_lbl = QLabel("")
+        self.hint_lbl.setStyleSheet("color: #8b949e;")
+        lay.addWidget(self.hint_lbl)
+        self.plot = pg.PlotWidget()
+        self.plot.setBackground("#0d1117")
+        self.plot.showGrid(x=True, y=True, alpha=0.3)
+        self.plot.setLabel("left", "Torque (N·m)")
+        self.plot.setLabel("bottom", "Dashboard time (s)")
+        self.plot.setMinimumHeight(190)
+        self.curve = self.plot.plot([], [], pen=pg.mkPen("#ff7b72", width=2))
+        lay.addWidget(self.plot)
+
+        # --- setup
+        gb = QGroupBox("Setup")
+        form = QFormLayout(gb)
+        self.arm_edit = QLineEdit("150")
+        self.arm_edit.setToolTip("Distance from the sensor axis to the line of the hanging weight. 150, 150.5mm, 15,5cm or 0.155m (a bare number = mm)")
+        form.addRow("Lever arm length:", self.arm_edit)
+        self.zero_cb = QComboBox()
+        self.zero_cb.addItem("Zeroed WITH the lever arm mounted (recommended): enter only what you hang on it")
+        self.zero_cb.addItem("Zeroed BARE, before the arm was mounted: add the arm's own torque")
+        self.zero_cb.currentIndexChanged.connect(lambda i: self.parts_edit.setEnabled(i == 1))
+        form.addRow("Amplifier zero:", self.zero_cb)
+        self.parts_edit = QLineEdit("9.01 43.91; 2.4 102")
+        self.parts_edit.setToolTip("Parts left on the sensor, as: mass_in_g distance_from_axis_in_mm ; next part ...")
+        self.parts_edit.setEnabled(False)
+        form.addRow("Fixed parts (g  mm; ...):", self.parts_edit)
+        self.trials_sb = QSpinBox()
+        self.trials_sb.setRange(1, 20)
+        self.trials_sb.setValue(3)
+        form.addRow("Trials per weight:", self.trials_sb)
+        self.cap_sb = QDoubleSpinBox()
+        self.cap_sb.setRange(0.01, 1000.0)
+        self.cap_sb.setDecimals(2)
+        self.cap_sb.setValue(2.0)
+        form.addRow("Sensor capacity (N·m):", self.cap_sb)
+        self.settle_sb = QDoubleSpinBox()
+        self.settle_sb.setRange(0.0, 60.0)
+        self.settle_sb.setValue(3.0)
+        form.addRow("Settle time after pressing Record (s):", self.settle_sb)
+        self.win_sb = QDoubleSpinBox()
+        self.win_sb.setRange(0.5, 60.0)
+        self.win_sb.setValue(2.0)
+        form.addRow("Averaging window (s):", self.win_sb)
+        lay.addWidget(gb)
+
+        # --- record
+        gb2 = QGroupBox("Record")
+        h = QHBoxLayout(gb2)
+        self.weight_edit = QLineEdit()
+        self.weight_edit.setPlaceholderText("real weight now attached: 250, 250.5g or 0.25kg")
+        self.weight_edit.returnPressed.connect(self.on_record_clicked)
+        h.addWidget(self.weight_edit, 3)
+        self.btn_record = QPushButton("Record trial")
+        self.btn_record.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        self.btn_record.clicked.connect(self.on_record_clicked)
+        h.addWidget(self.btn_record, 1)
+        self.btn_zero = QPushButton("Zero check (10 s)")
+        self.btn_zero.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        self.btn_zero.setToolTip("Nothing attached: mean, noise and drift of the reading over 10 s")
+        self.btn_zero.clicked.connect(self.on_zero_clicked)
+        h.addWidget(self.btn_zero, 1)
+        lay.addWidget(gb2)
+        self.status_lbl = QLabel("Ready. Attach the load, type its real weight, press Record trial.")
+        self.status_lbl.setStyleSheet("font-weight: bold;")
+        self.status_lbl.setWordWrap(True)
+        lay.addWidget(self.status_lbl)
+
+        # --- results
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Weight (g)", "Trial", "Expected (N·m)", "Reading (N·m)", "Std (N·m)", "Difference", "Samples"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setMinimumHeight(150)
+        lay.addWidget(self.table)
+        self.summary_lbl = QLabel("")
+        self.summary_lbl.setWordWrap(True)
+        lay.addWidget(self.summary_lbl)
+        self.file_lbl = QLabel(f"Saved after every trial to: {self.csv_path}")
+        self.file_lbl.setStyleSheet("color: #8b949e;")
+        self.file_lbl.setWordWrap(True)
+        lay.addWidget(self.file_lbl)
+        self.btn_new = QPushButton("New session (clear table, new file)")
+        self.btn_new.clicked.connect(self.on_new_session)
+        lay.addWidget(self.btn_new)
+
+    # ------------------------------------------------------------------ session file
+    def _new_session_file(self) -> None:
+        self.csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"loadcell_test_{datetime.now():%Y%m%d_%H%M%S}.csv")
+
+    def on_new_session(self) -> None:
+        if self.rows and QMessageBox.question(self, "New session", "Clear the table and start a new CSV file?\n(The old file stays on disk.)") != QMessageBox.StandardButton.Yes:
+            return
+        self.rows.clear()
+        self.table.setRowCount(0)
+        self.summary_lbl.setText("")
+        self._new_session_file()
+        self.file_lbl.setText(f"Saved after every trial to: {self.csv_path}")
+
+    # ------------------------------------------------------------------ live data from the dashboard (called every UI tick)
+    def feed(self, samples) -> None:
+        """samples: [(dashboard time s, torque N·m or NaN)]"""
+        for t, v in samples:
+            if self._last_t is not None and t < self._last_t - 0.5:          # 'Reset Data Log (t=0)' was pressed
+                if self._state != "idle":
+                    self._abort("The dashboard time was reset: recording cancelled.")
+                self._hist.clear()
+            self._last_t, self._last_v = t, v
+            if v == v:
+                self._hist.append((t, v))
+            self._step(t, v)
+        self._refresh_live()
+
+    def _refresh_live(self) -> None:
+        if self._last_t is None:
+            return
+        if self._last_v == self._last_v:
+            self.live_lbl.setText(f"Torque: {self._last_v:+.4f} N·m")
+            self.hint_lbl.setText("Live from the daemon (also in the main data log).")
+        else:
+            self.live_lbl.setText("Torque: no data")
+            self.hint_lbl.setText("The daemon sends no torque value: start it with  ./mixr1_daemon --torque  and check its start-up line "
+                                  "('Torque sensor answering on ...').")
+        if self._hist:
+            t0 = self._last_t - 20.0
+            pts = [(t, v) for t, v in self._hist if t >= t0]
+            if pts:
+                self.curve.setData([p[0] for p in pts], [p[1] for p in pts])
+
+    # ------------------------------------------------------------------ state machine driven by the telemetry clock
+    def _step(self, t: float, v: float) -> None:
+        if self._state == "settling":
+            left = self._t_settle_end - t
+            if left > 0:
+                self.status_lbl.setText(f"Settling ... {left:.1f} s (keep the load still)")
+            else:
+                self._state = "collecting"
+                self._t_collect_start = t
+                self._t_end = t + self.win_sb.value()
+                self._buf, self._ts = [], []
+        if self._state in ("collecting", "zero"):
+            if v == v:
+                self._buf.append(v)
+                self._ts.append(t)
+            left = self._t_end - t
+            if self._state == "collecting":
+                self.status_lbl.setText(f"Recording ... {max(0.0, left):.1f} s")
+            else:
+                self.status_lbl.setText(f"Zero check ... {max(0.0, left):.1f} s (leave the sensor completely untouched)")
+            if left <= 0:
+                (self._finish_trial if self._state == "collecting" else self._finish_zero)()
+
+    def _abort(self, msg: str) -> None:
+        self._state = "idle"
+        self.btn_record.setText("Record trial")
+        self.btn_zero.setEnabled(True)
+        self.status_lbl.setText(msg)
+
+    def _baseline(self) -> float:
+        if self.zero_cb.currentIndex() == 0:
+            return 0.0
+        total = 0.0
+        for part in self.parts_edit.text().replace(",", ".").split(";"):
+            tok = part.split()
+            if not tok:
+                continue
+            total += _lc_num(tok[0]) / 1000.0 * G_STD * _lc_num(tok[1]) / 1000.0
+        return total
+
+    # ------------------------------------------------------------------ buttons
+    def _have_live_data(self) -> bool:
+        if self._last_t is None:
+            QMessageBox.warning(self, "No telemetry", "No telemetry has arrived yet. Connect to the daemon first.")
+            return False
+        if self._last_v != self._last_v:
+            QMessageBox.warning(self, "No torque data", "The daemon is not sending a torque value.\nStart it with  ./mixr1_daemon --torque  and check its start-up line.")
+            return False
+        return True
+
+    def on_record_clicked(self) -> None:
+        if self._state != "idle":                                           # the button reads 'Cancel' while a trial runs
+            self._abort("Cancelled.")
+            return
+        try:
+            L = _lc_length_m(self.arm_edit.text())
+            if L <= 0:
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(self, "Lever arm", "Please type a lever arm length such as 150.5mm (a bare number = mm).")
+            return
+        try:
+            w_g, ambiguous = _lc_weight_g(self.weight_edit.text())
+            if w_g < 0:
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(self, "Weight", "Please type the real weight such as 250 (grams), 250.5g or 0.25kg.")
+            return
+        if ambiguous and QMessageBox.question(self, "Weight unit", f"You typed {self.weight_edit.text().strip()} with no unit: is that {w_g:g} grams?") != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            baseline = self._baseline()
+        except (ValueError, IndexError):
+            QMessageBox.warning(self, "Fixed parts", "Type the fixed parts as:  mass_in_g distance_in_mm ; next part ...   (for example  9.01 43.91; 2.4 102)")
+            return
+        T = w_g / 1000.0 * G_STD * L + baseline
+        cap = self.cap_sb.value()
+        if T > cap and QMessageBox.question(self, "Above capacity", f"Expected {T:.3f} N·m is ABOVE the sensor capacity of {cap:g} N·m (120 % is the safe overload).\nContinue anyway?") != QMessageBox.StandardButton.Yes:
+            return
+        if not self._have_live_data():
+            return
+        k = 1 + sum(1 for r in self.rows if r["weight_g"] == w_g)
+        self._pending = dict(w_g=w_g, L=L, baseline=baseline, T=T, trial=k)
+        self._state = "settling"
+        self._t_settle_end = (self._last_t or 0.0) + self.settle_sb.value()
+        self.btn_record.setText("Cancel")
+        self.btn_zero.setEnabled(False)
+        n = self.trials_sb.value()
+        self.status_lbl.setText(f"Trial {k}" + (f" of {n}" if k <= n else f" (extra, {n} planned)") + f": {w_g:g} g at {L * 1000:g} mm, expected {T:.4f} N·m. Settling ...")
+
+    def on_zero_clicked(self) -> None:
+        if self._state != "idle" or not self._have_live_data():
+            return
+        self._state = "zero"
+        self._buf, self._ts = [], []
+        self._t_end = (self._last_t or 0.0) + 10.0
+        self.btn_record.setEnabled(False)
+        self.btn_zero.setEnabled(False)
+
+    # ------------------------------------------------------------------ results
+    def _finish_zero(self) -> None:
+        self._state = "idle"
+        self.btn_record.setEnabled(True)
+        self.btn_zero.setEnabled(True)
+        if len(self._buf) < 20:
+            self.status_lbl.setText("Zero check failed: too few torque samples arrived.")
+            return
+        v, t = np.asarray(self._buf), np.asarray(self._ts)
+        slope = float(np.polyfit(t - t[0], v, 1)[0]) if np.ptp(t) > 0 else 0.0
+        cap = self.cap_sb.value()
+        self.status_lbl.setText(f"ZERO CHECK over {t[-1] - t[0]:.1f} s:  mean {v.mean():+.4f} N·m,  noise (std) {v.std():.5f},  min {v.min():+.4f},  max {v.max():+.4f},  "
+                                f"drift {slope * 60:+.5f} N·m/min.   Offset {abs(v.mean()) / cap * 100:.2f} % FS, noise {v.std() / cap * 100:.3f} % FS.  "
+                                f"A steady offset is fine (tare the amplifier with the arm mounted); a wandering reading is the real problem.")
+
+    def _finish_trial(self) -> None:
+        self._state = "idle"
+        self.btn_record.setText("Record trial")
+        self.btn_zero.setEnabled(True)
+        p = self._pending
+        if len(self._buf) < 5:
+            self.status_lbl.setText("No usable torque samples arrived during the window: trial NOT recorded.")
+            return
+        v = np.asarray(self._buf)
+        row = dict(timestamp=datetime.now().isoformat(timespec="seconds"), weight_g=p["w_g"], lever_arm_mm=p["L"] * 1000.0, trial=p["trial"],
+                   baseline_torque_Nm=p["baseline"], expected_torque_Nm=p["T"], reading=float(v.mean()), reading_std=float(v.std()), n_samples=len(v),
+                   t_start_s=self._ts[0], t_end_s=self._ts[-1], unit="Nm")
+        self.rows.append(row)
+        new = not os.path.exists(self.csv_path)
+        try:
+            with open(self.csv_path, "a", newline="", encoding="utf-8") as f:                      # written after EVERY trial
+                w = csv.DictWriter(f, fieldnames=self.COLS)
+                if new:
+                    w.writeheader()
+                w.writerow(row)
+        except OSError as e:
+            QMessageBox.warning(self, "Could not save", f"{self.csv_path}\n{e}")
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        diff = row["reading"] - row["expected_torque_Nm"]
+        for c, txt in enumerate([f"{row['weight_g']:g}", str(row["trial"]), f"{row['expected_torque_Nm']:.4f}", f"{row['reading']:.4f}", f"{row['reading_std']:.5f}", f"{diff:+.4f}", str(row["n_samples"])]):
+            self.table.setItem(r, c, QTableWidgetItem(txt))
+        self.table.scrollToBottom()
+        self.status_lbl.setText(f"Recorded: reading {row['reading']:.4f} N·m (±{row['reading_std']:.5f}), expected {row['expected_torque_Nm']:.4f}, difference {diff:+.4f} N·m.")
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        groups: dict = {}
+        for r in self.rows:
+            groups.setdefault(r["weight_g"], []).append(r)
+        pts = [(g[0]["expected_torque_Nm"], float(np.mean([x["reading"] for x in g]))) for _, g in sorted(groups.items())]
+        if len(pts) < 3:
+            self.summary_lbl.setText(f"{len(self.rows)} trial(s) at {len(groups)} weight(s). A straight-line fit needs at least 3 different weights.")
+            return
+        x, y = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
+        gain, off = np.polyfit(x, y, 1)
+        ss_tot = float(((y - y.mean()) ** 2).sum())
+        r2 = 1 - float(((y - (gain * x + off)) ** 2).sum()) / ss_tot if ss_tot > 0 else float("nan")
+        self.summary_lbl.setText(f"Straight-line fit of the weight averages:  reading = {gain:.5f} × torque {off:+.5f}   (R² = {r2:.6f})\n"
+                                 f"Gain error {abs(gain - 1) * 100:.3f} %, zero offset {off:+.5f} N·m  (ideal: gain 1.0, offset 0)")
+
+
+# ==========================================
+# RPM SEQUENCE: hold a list of target speeds one after another and record RPM / torque / power at every step
+# ==========================================
+SEQ_DEFAULT_RPMS = [44, 56, 57, 74, 78, 88, 125, 158, 185, 207, 228, 248, 260, 278, 288, 298, 307, 316, 324, 330, 332, 340, 342, 347]
+# column positions of one telemetry row, as used by the table model
+R_T, R_RAW, R_FILT, R_REVS, R_TQ, R_SHAFT_W, R_NRE, R_NPO, R_PWM, R_TGT, R_V, R_MA, R_EW = range(13)
+
+
+def _nanmean(values) -> float:
+    a = np.asarray(values, dtype=float)
+    a = a[np.isfinite(a)]
+    return float(a.mean()) if a.size else float("nan")
+
+
+def _nanstd(values) -> float:
+    a = np.asarray(values, dtype=float)
+    a = a[np.isfinite(a)]
+    return float(a.std()) if a.size else float("nan")
+
+
+def _fmt(v: float, spec: str) -> str:
+    return "-" if v != v else format(v, spec)
+
+
+class RpmSequenceWindow(QDialog):
+    """Runs a list of target speeds (closed loop) one after another through the daemon, holding each one for the dwell time.
+    For every step it averages the last part of the hold (steady state) and appends one row to rpm_sequence_<date>_<time>.csv:
+    mean RPM, torque, PWM, voltage, current, power, N_Re and N_Po. The full 100 Hz recording (with torque) is the normal dashboard log;
+    the t_start_s / t_end_s of every step in the CSV locate it there. Timing follows the telemetry clock, so it matches the recording."""
+    COLS = ["step", "target_rpm", "t_start_s", "t_end_s", "avg_from_s", "n_samples", "rpm_raw_mean", "rpm_raw_std", "rpm_filtered_mean",
+            "torque_Nm_mean", "torque_Nm_std", "pwm_pct_mean", "bus_V_mean", "current_mA_mean", "elec_power_W_mean", "shaft_power_W",
+            "N_Re", "N_Po", "rho_kg_m3", "mu_Pa_s", "D_m"]
+
+    def __init__(self, main, parent=None):
+        super().__init__(parent)
+        self.main = main
+        self.setWindowTitle("RPM Sequence (hold each speed, record RPM and torque)")
+        self.setMinimumSize(780, 780)
+        self.setStyleSheet("QDialog { background-color: #161b22; color: #c9d1d9; } QLabel, QCheckBox { color: #c9d1d9; } "
+                           "QGroupBox { border: 1px solid #30363d; border-radius: 4px; margin-top: 10px; padding-top: 8px; font-weight: bold; } "
+                           "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; } "
+                           "QPlainTextEdit, QDoubleSpinBox, QSpinBox { background-color: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 3px; } "
+                           "QTableWidget { background-color: #0d1117; color: #c9d1d9; gridline-color: #30363d; } "
+                           "QHeaderView::section { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 3px; }")
+        self._state = "idle"                  # idle | running
+        self._seq: List[int] = []
+        self._idx = 0
+        self._armed = False                   # True right after a step was commanded: the next sample starts its clock
+        self._t0 = 0.0
+        self._t_end = 0.0
+        self._buf: List[tuple] = []
+        self._last_t: Optional[float] = None
+        self._last_feed_wall = time.monotonic()
+        self.rows: List[dict] = []
+        self.csv_path = ""
+
+        lay = QVBoxLayout(self)
+        gb = QGroupBox("Sequence")
+        form = QFormLayout(gb)
+        self.list_edit = QPlainTextEdit(" ".join(str(v) for v in SEQ_DEFAULT_RPMS))
+        self.list_edit.setFixedHeight(80)
+        self.list_edit.setToolTip("Target speeds in RPM, separated by spaces, commas or new lines. Decimals are rounded to whole RPM. Put 0 first to record the zero reading.")
+        form.addRow("Target speeds (RPM):", self.list_edit)
+        self.dwell_sb = QDoubleSpinBox()
+        self.dwell_sb.setRange(2.0, 600.0)
+        self.dwell_sb.setValue(15.0)
+        self.dwell_sb.setSuffix(" s")
+        form.addRow("Hold each speed for:", self.dwell_sb)
+        self.avg_sb = QDoubleSpinBox()
+        self.avg_sb.setRange(0.5, 600.0)
+        self.avg_sb.setValue(5.0)
+        self.avg_sb.setSuffix(" s")
+        self.avg_sb.setToolTip("Only the LAST part of every hold is averaged, so the settling after the speed change is left out")
+        form.addRow("Average the last:", self.avg_sb)
+        self.reset_cb = QCheckBox("Reset the data log (t = 0) when the sequence starts")
+        self.reset_cb.setChecked(True)
+        form.addRow("", self.reset_cb)
+        self.export_cb = QCheckBox("Export the full data log (.csv and .mat) when the sequence has finished")
+        self.export_cb.setChecked(True)
+        form.addRow("", self.export_cb)
+        lay.addWidget(gb)
+        self.total_lbl = QLabel("")
+        lay.addWidget(self.total_lbl)
+        self.list_edit.textChanged.connect(self._update_total)
+        self.dwell_sb.valueChanged.connect(self._update_total)
+
+        h = QHBoxLayout()
+        self.btn_start = QPushButton("Start sequence (the motor will run)")
+        self.btn_start.setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        self.btn_start.clicked.connect(self.start)
+        h.addWidget(self.btn_start, 3)
+        self.btn_abort = QPushButton("Abort (stop motor)")
+        self.btn_abort.setStyleSheet("QPushButton { background-color: #da3633; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }")
+        self.btn_abort.setEnabled(False)
+        self.btn_abort.clicked.connect(lambda: self._end(False, "Aborted. Motor stopped."))
+        h.addWidget(self.btn_abort, 1)
+        lay.addLayout(h)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setStyleSheet("QProgressBar { border: 1px solid #30363d; border-radius: 4px; text-align: center; } QProgressBar::chunk { background-color: #238636; }")
+        lay.addWidget(self.progress)
+        self.status_lbl = QLabel("Ready.")
+        self.status_lbl.setStyleSheet("font-weight: bold;")
+        self.status_lbl.setWordWrap(True)
+        lay.addWidget(self.status_lbl)
+
+        self.table = QTableWidget(0, 10)
+        self.table.setHorizontalHeaderLabels(["Step", "Target (RPM)", "RPM (filt.)", "RPM std", "Torque (N·m)", "Torque std", "PWM (%)", "Current (mA)", "N_Re", "N_Po"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        lay.addWidget(self.table, 1)
+        self.file_lbl = QLabel("")
+        self.file_lbl.setStyleSheet("color: #8b949e;")
+        self.file_lbl.setWordWrap(True)
+        lay.addWidget(self.file_lbl)
+        self._update_total()
+
+        self._watchdog = QTimer(self)
+        self._watchdog.timeout.connect(self._check_alive)
+        self._watchdog.start(1000)
+
+    # ------------------------------------------------------------------ list handling
+    def _parse_list(self) -> List[int]:
+        out: List[int] = []
+        for tok in re.split(r"[,;\s]+", self.list_edit.toPlainText().strip()):
+            if tok:
+                out.append(int(math.floor(float(tok) + 0.5)))               # round half up
+        return out
+
+    def _update_total(self) -> None:
+        try:
+            n = len(self._parse_list())
+        except ValueError:
+            self.total_lbl.setText("The list contains something that is not a number.")
+            return
+        tot = n * self.dwell_sb.value()
+        self.total_lbl.setText(f"{n} speeds x {self.dwell_sb.value():g} s = {tot:.0f} s ({tot / 60:.1f} min)")
+
+    # ------------------------------------------------------------------ start / stop
+    def start(self) -> None:
+        m = self.main
+        try:
+            seq = self._parse_list()
+        except ValueError:
+            QMessageBox.warning(self, "Speeds", "The list contains something that is not a number.")
+            return
+        if not seq or min(seq) < 0 or max(seq) > 2500:
+            QMessageBox.warning(self, "Speeds", "Give at least one speed, between 0 and 2500 RPM.")
+            return
+        if self.avg_sb.value() >= self.dwell_sb.value():
+            QMessageBox.warning(self, "Averaging", "The averaging time must be shorter than the hold time.")
+            return
+        if getattr(m, "_last_status", "") != "Mode 2":
+            QMessageBox.warning(self, "Not connected", "The dashboard is not connected to the daemon in standalone control (Mode 2). Connect first.")
+            return
+        sw = getattr(m, "step_test_win", None)
+        if sw is not None and sw.test_thread.isRunning():
+            QMessageBox.warning(self, "Step test running", "Stop the automated step test first.")
+            return
+        if QMessageBox.question(self, "Start", f"The motor will run through {len(seq)} speeds for {self.dwell_sb.value():g} s each "
+                                f"({len(seq) * self.dwell_sb.value() / 60:.1f} min) and then stop. Start now?") != QMessageBox.StandardButton.Yes:
+            return
+        self._seq, self._idx, self.rows = seq, 0, []
+        self.table.setRowCount(0)
+        self.csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"rpm_sequence_{datetime.now():%Y%m%d_%H%M%S}.csv")
+        self.file_lbl.setText(f"Per-step results are saved after every step to: {self.csv_path}")
+        m.control_mode_cb.setCurrentIndex(0)                                 # closed loop on target RPM (also sends 0 RPM)
+        if self.reset_cb.isChecked():
+            m.reset_telemetry()
+        for w in (m.control_mode_cb, m.target_slider, m.target_input, m.btn_step_test):
+            w.setEnabled(False)
+        self._last_t = None
+        self._last_feed_wall = time.monotonic()
+        self._state = "running"
+        self.btn_start.setEnabled(False)
+        self.btn_abort.setEnabled(True)
+        self._go(0)
+
+    def _go(self, idx: int) -> None:
+        self._idx = idx
+        self._armed = True                                                   # the clock of this step starts with the next telemetry sample
+        self._buf = []
+        self.main.target_slider.setValue(self._seq[idx])                     # -> CMD:RPM,<value> to the daemon
+        self.status_lbl.setText(f"Step {idx + 1}/{len(self._seq)}: going to {self._seq[idx]} RPM ...")
+
+    def _end(self, finished: bool, msg: str) -> None:
+        if self._state == "idle":
+            return
+        self._state = "idle"
+        m = self.main
+        m.target_slider.setValue(0)                                          # stop the motor
+        for w in (m.control_mode_cb, m.target_slider, m.target_input, m.btn_step_test):
+            w.setEnabled(getattr(m, "_last_status", "") != "Mode 3")
+        self.btn_start.setEnabled(True)
+        self.btn_abort.setEnabled(False)
+        if finished:
+            self.progress.setValue(100)
+        extra = ""
+        if finished and self.export_cb.isChecked():
+            name = m.export_silent("rpm_sequence")
+            extra = f"  Full data log saved to {name} (+ .mat)." if name else "  The full data log could not be exported: use 'Export Data' in the main window."
+        elif not finished:
+            extra = "  The data log is still in the main window: use 'Export Data' to save it."
+        self.status_lbl.setText(msg + extra)
+
+    def _check_alive(self) -> None:
+        if self._state != "running":
+            return
+        if getattr(self.main, "_last_status", "") != "Mode 2":
+            self._end(False, "The link to the daemon was lost (or MATLAB took control): sequence aborted, motor commanded to 0.")
+        elif time.monotonic() - self._last_feed_wall > 3.0:
+            self._end(False, "No telemetry for 3 s: sequence aborted, motor commanded to 0.")
+
+    def closeEvent(self, a0):
+        if self._state == "running":
+            self._end(False, "Window closed: sequence aborted, motor stopped.")
+        super().closeEvent(a0)
+
+    # ------------------------------------------------------------------ live telemetry from the dashboard (every UI tick)
+    def feed(self, rows) -> None:
+        """rows: full telemetry tuples of the table model (see R_* positions)"""
+        if not rows:
+            return
+        self._last_feed_wall = time.monotonic()
+        for r in rows:
+            t = r[R_T]
+            if self._last_t is not None and t < self._last_t - 0.5 and self._state == "running":
+                self._end(False, "The dashboard time was reset during the sequence: aborted, motor stopped.")
+                return
+            self._last_t = t
+            if self._state != "running":
+                continue
+            if self._armed:
+                self._armed = False
+                self._t0 = t
+                self._t_end = t + self.dwell_sb.value()
+            self._buf.append(r)
+            if t >= self._t_end:
+                self._finish_step()
+                if self._state != "running":
+                    return
+                if self._idx + 1 < len(self._seq):
+                    self._go(self._idx + 1)
+                    return                                                  # the next samples belong to the next step
+                self._end(True, f"Sequence finished: {len(self._seq)} steps recorded. Motor stopped.")
+                return
+        if self._state == "running" and not self._armed:
+            left = max(0.0, self._t_end - self._last_t)
+            n = len(self._seq)
+            self.status_lbl.setText(f"Step {self._idx + 1}/{n}: {self._seq[self._idx]} RPM, {left:.1f} s left")
+            self.progress.setValue(int(100 * (self._idx + 1 - left / self.dwell_sb.value()) / n))
+
+    # ------------------------------------------------------------------ one step finished
+    def _finish_step(self) -> None:
+        m = self.main
+        t_from = self._t_end - self.avg_sb.value()
+        rows = [r for r in self._buf if r[R_T] >= t_from]
+        col = lambda i: [r[i] for r in rows]                                  # noqa: E731
+        rpm_f, rpm_raw, rpm_sd = _nanmean(col(R_FILT)), _nanmean(col(R_RAW)), _nanstd(col(R_RAW))
+        tq, tq_sd = _nanmean(col(R_TQ)), _nanstd(col(R_TQ))
+        rho, mu, d = m.fluid_cb.currentData(), m.visc_cb.currentData(), m.impeller_cb.currentData()
+        n_re = shaft_w = n_po = float("nan")
+        if rpm_f == rpm_f:
+            _, n_re, _ = FluidCalculations.calculate_metrics(rpm_f, 0.0, rho, mu, d)
+            if tq == tq:
+                shaft_w, _, n_po = FluidCalculations.calculate_metrics(rpm_f, tq, rho, mu, d)
+        row = dict(step=self._idx + 1, target_rpm=self._seq[self._idx], t_start_s=self._t0, t_end_s=self._t_end, avg_from_s=t_from, n_samples=len(rows),
+                   rpm_raw_mean=rpm_raw, rpm_raw_std=rpm_sd, rpm_filtered_mean=rpm_f, torque_Nm_mean=tq, torque_Nm_std=tq_sd,
+                   pwm_pct_mean=_nanmean(col(R_PWM)), bus_V_mean=_nanmean(col(R_V)), current_mA_mean=_nanmean(col(R_MA)), elec_power_W_mean=_nanmean(col(R_EW)),
+                   shaft_power_W=shaft_w, N_Re=n_re, N_Po=n_po, rho_kg_m3=rho, mu_Pa_s=mu, D_m=d)
+        self.rows.append(row)
+        new = not os.path.exists(self.csv_path)
+        try:
+            with open(self.csv_path, "a", newline="", encoding="utf-8") as f:                     # written after EVERY step
+                w = csv.DictWriter(f, fieldnames=self.COLS)
+                if new:
+                    w.writeheader()
+                w.writerow(row)
+        except OSError as e:
+            self.status_lbl.setText(f"Could not write {self.csv_path}: {e}")
+        r_ = self.table.rowCount()
+        self.table.insertRow(r_)
+        cells = [str(row["step"]), str(row["target_rpm"]), _fmt(rpm_f, ".1f"), _fmt(rpm_sd, ".2f"), _fmt(tq, ".4f"), _fmt(tq_sd, ".4f"),
+                 _fmt(row["pwm_pct_mean"], ".1f"), _fmt(row["current_mA_mean"], ".0f"), _fmt(n_re, ".0f"), _fmt(n_po, ".3f")]
+        for c, txt in enumerate(cells):
+            self.table.setItem(r_, c, QTableWidgetItem(txt))
+        self.table.scrollToBottom()
+
 # ==========================================
 # MODULE 3: THESIS UI RENDERING
 # ==========================================
@@ -579,14 +1226,17 @@ class ThesisDashboard(QMainWindow):
         self.window_cb.currentIndexChanged.connect(self._on_hardware_config_changed)
         
         self.fluid_cb = QComboBox()
-        self.fluid_cb.addItem("Water (20°C)", userData=998.0) 
+        self.fluid_cb.addItem("Test water (996.3 kg/m³)", userData=996.3)
+        self.fluid_cb.addItem("Water (20°C)", userData=998.0)
         self.fluid_cb.setStyleSheet(combo_style)
         
         self.visc_cb = QComboBox()
-        self.visc_cb.addItem("Water (20°C)", userData=0.001002) 
+        self.visc_cb.addItem("Test water (8.54e-4 Pa·s)", userData=8.54e-4)
+        self.visc_cb.addItem("Water (20°C)", userData=0.001002)
         self.visc_cb.setStyleSheet(combo_style)
         
         self.impeller_cb = QComboBox()
+        self.impeller_cb.addItem("Impeller D_i = 0.14028 m", userData=0.14028)
         self.impeller_cb.addItem("Rushton Turbine (D = 0.067m)", userData=0.067)
         self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
         self.impeller_cb.setStyleSheet(combo_style)
@@ -660,12 +1310,22 @@ class ThesisDashboard(QMainWindow):
         self.btn_step_test.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
         self.btn_step_test.clicked.connect(self.open_step_test_window)
 
+        self.btn_loadcell = QPushButton("Load-Cell Test (torque sensor)")
+        self.btn_loadcell.setStyleSheet("QPushButton { background-color: #8957e5; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
+        self.btn_loadcell.clicked.connect(self.open_loadcell_window)
+
+        self.btn_sequence = QPushButton("RPM Sequence (hold each speed)")
+        self.btn_sequence.setStyleSheet("QPushButton { background-color: #0e8a8a; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
+        self.btn_sequence.clicked.connect(self.open_sequence_window)
+
         self.btn_reset = QPushButton("Reset Data Log (t=0)")
         self.btn_reset.setStyleSheet("QPushButton { background-color: #d29922; color: white; font-weight: bold; padding: 8px; border-radius: 4px; margin-top: 5px; }")
         self.btn_reset.clicked.connect(self.reset_telemetry)
 
         control_layout.addRow(self.btn_export)
         control_layout.addRow(self.btn_step_test)
+        control_layout.addRow(self.btn_loadcell)
+        control_layout.addRow(self.btn_sequence)
         control_layout.addRow(self.btn_reset)
 
         control_group.setLayout(control_layout)
@@ -875,6 +1535,46 @@ class ThesisDashboard(QMainWindow):
         self.step_test_win.raise_()
         self.step_test_win.activateWindow()
 
+    def open_sequence_window(self) -> None:
+        if getattr(self, "seq_win", None) is None:
+            self.seq_win = RpmSequenceWindow(self, self)
+        self.seq_win.show()
+        self.seq_win.raise_()
+        self.seq_win.activateWindow()
+
+    def export_silent(self, tag: str) -> Optional[str]:
+        """Same files as 'Export Data' but without any dialog (used when a sequence has finished). Returns the CSV name, or None."""
+        if self.table_model.rowCount() == 0:
+            return None
+        full_data = self.table_model.get_all_columns()
+        if not full_data:
+            return None
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = f"mixr1_log_{stamp}_{re.sub(r'[^a-zA-Z0-9_-]', '_', tag)}"
+        try:
+            with open(base + ".csv", 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(self.table_model.headers)
+                for row in self.table_model.dataset:
+                    writer.writerow(row)
+            sio.savemat(base + ".mat", {
+                "time_s": np.array(full_data[0]), "Raw_RPM": np.array(full_data[1]), "Filtered_RPM": np.array(full_data[2]),
+                "Revolutions": np.array(full_data[3]), "Torque_Nm": np.array(full_data[4]), "Power_W": np.array(full_data[5]),
+                "N_Re": np.array(full_data[6]), "N_Po": np.array(full_data[7]), "PWM_pct": np.array(full_data[8]),
+                "Target_RPM": np.array(full_data[9]), "Bus_V": np.array(full_data[10]), "Current_mA": np.array(full_data[11]),
+                "Elec_Power_W": np.array(full_data[12])})
+            return base + ".csv"
+        except Exception as e:                                                # noqa: BLE001
+            logger.error("silent export failed: %s", e)
+            return None
+
+    def open_loadcell_window(self) -> None:
+        if getattr(self, "loadcell_win", None) is None:
+            self.loadcell_win = LoadCellTestWindow(self)
+        self.loadcell_win.show()
+        self.loadcell_win.raise_()
+        self.loadcell_win.activateWindow()
+
     def switch_page(self, index: int) -> None:
         self.stacked_widget.setCurrentIndex(index)
         self.btn_mode2.setChecked(index == 0)
@@ -918,6 +1618,13 @@ class ThesisDashboard(QMainWindow):
 
         if not batch_data:
             return
+
+        lc = getattr(self, "loadcell_win", None)
+        if lc is not None:
+            lc.feed([(row[0], row[4]) for row in batch_data])               # (dashboard time, measured torque)
+        sq = getattr(self, "seq_win", None)
+        if sq is not None:
+            sq.feed(batch_data)                                             # full rows: the RPM sequence runner averages them per step
 
         self.table_model.add_rows(batch_data)
 
