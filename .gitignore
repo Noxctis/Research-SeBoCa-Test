@@ -2,7 +2,7 @@
 .csv
 *slprj
 *water_level_model_ert_rtw
-*.slx
+
 *.autosave
 *.elf
 *.slxc
