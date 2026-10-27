@@ -17,8 +17,8 @@ static int i2c_fd = -1;
 
 // Initialize the I2C bus on Raspberry Pi 4B (I2C Bus 1)
 uint8_t VL53L4CD_PlatformInit(void) {
-    if ((i2c_fd = open("/dev/i2c-1", O_RDWR)) < 0) {
-        printf("Failed to open the i2c bus /dev/i2c-1\n");
+    if ((i2c_fd = open("/dev/i2c-3", O_RDWR)) < 0) {
+    printf("Failed to open the i2c bus /dev/i2c-3\n");
         return 1;
     }
     // 0x29 is the default I2C address for the VL53L4CD
