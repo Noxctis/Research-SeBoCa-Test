@@ -1,2 +1,0 @@
-step,target_rpm,t_start_s,t_end_s,avg_from_s,n_samples,rpm_raw_mean,rpm_raw_std,rpm_filtered_mean,torque_Nm_mean,torque_Nm_std,pwm_pct_mean,bus_V_mean,current_mA_mean,elec_power_W_mean,shaft_power_W,N_Re,N_Po,rho_kg_m3,mu_Pa_s,D_m
-1,67,0.0,15.0,10.0,501,67.02338381437126,12.08669740118021,67.02059847704591,0.0,0.0,4.3426698962075845,24.314483033932135,38.56487025948104,0.9376827864271458,0.0,25643.708136368532,0.0,996.3,0.000854,0.14028
