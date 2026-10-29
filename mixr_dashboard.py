@@ -82,6 +82,69 @@ class SystemConfig:
     PLOT_WINDOW_SIZE: int = 3000
 
 # ==========================================
+# CFD REFERENCE DATA (Power Number vs. Reynolds Number)
+# ==========================================
+# Each entry is keyed by the impeller diameter D [m] used in the Diameter dropdown. The live N_Po vs N_Re points are overlaid on
+# the matching curve. N_Re = rho*N*D^2/mu and N_Po = 2*pi*N*tau/(rho*N^3*D^5) with N = RPM/60, same as the live calculation.
+CFD_REFERENCE = {
+    0.1207: {      # 174 mm impeller setting
+        "label": "174 mm (D = 0.1207 m)", "rho": 996.3, "mu": 8.54e-4,
+        "rpm": [
+    0.0035, 0.0071, 0.0106, 0.0141, 0.0177, 0.0212, 0.0247, 0.0282, 0.0318, 0.0353, 0.0706, 0.1059, 0.1412,
+    0.1765, 0.2118, 0.2471, 0.2824, 0.3177, 0.3530, 0.7060, 1.0591, 1.4121, 1.7651, 2.1181, 2.4712, 2.8242,
+    3.1772, 3.5302, 7.0605, 10.5907, 14.1210, 17.6512, 21.1815, 24.7117, 28.2419, 31.7722, 35.3024, 70.6048,
+    105.9073, 141.2097, 176.5121, 211.8145, 247.1169, 282.4193, 317.7218, 353.0242, 706.0484, 1059.0725,
+    1412.0967, 1765.1209, 2118.1451, 2471.1692, 2824.1934, 3177.2176, 3530.2418
+        ],
+        "torque": [
+    8.30847E-05, 8.12171E-05, 7.9723E-05, 7.81925E-05, 7.6694E-05, 7.52887E-05, 7.38622E-05, 7.24428E-05,
+    7.09611E-05, 6.95571E-05, 5.62529E-05, 4.47513E-05, 3.49945E-05, 2.77087E-05, 2.25286E-05, 1.97217E-05,
+    1.93011E-05, 2.11349E-05, 2.50997E-05, 0.000114773, 0.000130875, 0.000108382, 0.000136488, 0.000137247,
+    0.000131259, 0.000152069, 0.00015311, 0.000161309, 0.000252409, 0.000391425, 0.000624363, 0.000908213,
+    0.001221518, 0.001609429, 0.002058317, 0.002588436, 0.003110721, 0.011692957, 0.02582655, 0.046064074,
+    0.075225933, 0.103991046, 0.142736562, 0.190844532, 0.2312017, 0.287934763, 1.36020747, 3.03665871,
+    5.4171419, 8.1092793, 11.8146404, 15.9095122, 21.0686196, 26.210303, 33.0228845
+        ],
+    },
+    0.0665: {      # 96 mm impeller setting
+        "label": "96 mm (D = 0.0665 m)", "rho": 996.3, "mu": 8.54e-4,
+        "rpm": [
+    0.011629892, 0.023259785, 0.034889677, 0.04651957, 0.058149462, 0.069779355, 0.081409247, 0.09303914,
+    0.104669032, 0.116298925, 0.23259785, 0.348896775, 0.4651957, 0.581494625, 0.69779355, 0.814092475,
+    0.9303914, 1.046690324, 1.162989249, 2.325978499, 3.488967748, 4.651956998, 5.814946247, 6.977935496,
+    8.140924746, 9.303913995, 10.46690324, 11.62989249, 23.25978499, 34.88967748, 46.51956998, 58.14946247,
+    69.77935496, 81.40924746, 93.03913995, 104.6690324, 116.2989249, 232.5978499, 348.8967748, 465.1956998,
+    581.4946247, 697.7935496, 814.0924746, 930.3913995, 1046.690324, 1162.989249, 2325.978499, 3488.967748,
+    4651.956998, 5814.946247, 6977.935496, 8140.924746, 9303.913995, 10466.90324, 11629.89249
+        ],
+        "torque": [
+    0.001008482, 0.000994326, 0.000979095, 0.000962854, 0.000945386, 0.000926236, 0.000906495, 0.000884259,
+    0.00086334, 0.000840284, 0.000580195, 0.000314928, 0.000123257, 4.23352E-05, 7.23785E-05, 0.000167906,
+    0.000278636, 0.000353075, 0.000370883, 0.000308789, 0.000272247, 0.000267719, 0.000285311, 0.000324956,
+    0.000355525, 0.000335909, 0.00029318, 0.000276493, 0.000356623, 0.000406764, 0.000452342, 0.000552389,
+    0.00066655, 0.000784545, 0.000979985, 0.001131634, 0.001404606, 0.004794203, 0.010725621, 0.018846368,
+    0.027820107, 0.039679802, 0.051333689, 0.072215821, 0.092857341, 0.11484508, 0.47684816, 1.071569506,
+    1.966321916, 2.974909752, 4.342980526, 6.191851101, 8.416617482, 9.964787064, 13.50480411
+        ],
+    },
+}
+
+
+def cfd_reference_curve(d: float):
+    """Returns (label, N_Re array, N_Po array) of the CFD reference for impeller diameter d, or None if there is none."""
+    for key, ref in CFD_REFERENCE.items():
+        if abs(key - d) < 1e-6:
+            rpm = np.asarray(ref["rpm"], dtype=float)
+            tau = np.asarray(ref["torque"], dtype=float)
+            n = rpm / 60.0
+            n_re = ref["rho"] * n * key ** 2 / ref["mu"]
+            n_po = (tau * 2.0 * np.pi * n) / (ref["rho"] * n ** 3 * key ** 5)
+            ok = np.isfinite(n_re) & np.isfinite(n_po) & (n_re > 0) & (n_po > 0)
+            return ref["label"], n_re[ok], n_po[ok]
+    return None
+
+
+# ==========================================
 # BUSINESS LOGIC (MATH ENGINE)
 # ==========================================
 class FluidCalculations:
@@ -1236,9 +1299,8 @@ class ThesisDashboard(QMainWindow):
         self.visc_cb.setStyleSheet(combo_style)
         
         self.impeller_cb = QComboBox()
-        self.impeller_cb.addItem("Impeller D_i = 0.14028 m", userData=0.14028)
-        self.impeller_cb.addItem("Rushton Turbine (D = 0.067m)", userData=0.067)
-        self.impeller_cb.addItem("Pitched Blade (D = 0.080m)", userData=0.080)
+        self.impeller_cb.addItem("Impeller 174 mm setting (D = 0.1207 m)", userData=0.1207)
+        self.impeller_cb.addItem("Impeller 96 mm setting (D = 0.0665 m)", userData=0.0665)
         self.impeller_cb.setStyleSheet(combo_style)
 
         target_layout = QHBoxLayout()
@@ -1331,37 +1393,6 @@ class ThesisDashboard(QMainWindow):
         control_group.setLayout(control_layout)
         left_panel.addWidget(control_group)
 
-        tuning_group = QGroupBox("PI Tuning (live, sent to Pi)")
-        tuning_layout = QFormLayout()
-        spin_style = "QDoubleSpinBox { background-color: #21262d; color: #58a6ff; border: 1px solid #30363d; border-radius: 4px; padding: 4px; font-weight: bold; min-width: 90px; }"
-
-        self.kp_spin = QDoubleSpinBox()
-        self.kp_spin.setDecimals(4); self.kp_spin.setRange(0.0, 50.0); self.kp_spin.setSingleStep(0.1)
-        self.kp_spin.setValue(1.5641); self.kp_spin.setStyleSheet(spin_style)
-
-        self.ki_spin = QDoubleSpinBox()
-        self.ki_spin.setDecimals(3); self.ki_spin.setRange(0.0, 500.0); self.ki_spin.setSingleStep(1.0)
-        self.ki_spin.setValue(41.2249); self.ki_spin.setStyleSheet(spin_style)
-
-        self.alpha_spin = QDoubleSpinBox()
-        self.alpha_spin.setDecimals(2); self.alpha_spin.setRange(0.01, 1.0); self.alpha_spin.setSingleStep(0.05)
-        self.alpha_spin.setValue(1.0); self.alpha_spin.setStyleSheet(spin_style)
-
-        self.btn_apply_gains = QPushButton("Apply to Pi")
-        self.btn_apply_gains.setStyleSheet("QPushButton { background-color: #1f6feb; color: white; font-weight: bold; padding: 6px; border-radius: 4px; }")
-        self.btn_apply_gains.clicked.connect(self._on_apply_gains)
-
-        self.gain_status_lbl = QLabel("Not applied yet - Pi is using its config.hpp values")
-        self.gain_status_lbl.setStyleSheet("font-size: 11px; color: #8b949e; font-weight: normal;")
-
-        tuning_layout.addRow("Kp:", self.kp_spin)
-        tuning_layout.addRow("Ki:", self.ki_spin)
-        tuning_layout.addRow("Feedback α (1 = off):", self.alpha_spin)
-        tuning_layout.addRow(self.btn_apply_gains)
-        tuning_layout.addRow(self.gain_status_lbl)
-        tuning_group.setLayout(tuning_layout)
-        left_panel.addWidget(tuning_group)
-
         table_group = QGroupBox("Live Data Log")
         table_layout = QVBoxLayout()
         
@@ -1405,7 +1436,16 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot = plot_layout.addPlot(title="Power Number vs. Reynolds Number", row=1, col=1)  # type: ignore
         self.npo_plot.setLogMode(x=True, y=True) 
         self.npo_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff')
+        self.npo_plot.addLegend(offset=(10, 10))
+        self.npo_plot.setLabel("bottom", "N_Re (log)")
+        self.npo_plot.setLabel("left", "N_Po (log)")
+        # CFD reference curve for the selected impeller (drawn first so the live data sits on top of it)
+        self.npo_ref = self.npo_plot.plot([], [], pen=pg.mkPen(color='#f0883e', width=2), symbol='s', symbolSize=4,
+                                          symbolBrush='#f0883e', symbolPen=None, name="CFD reference")
+        # live measured points
+        self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff', name="Measured")
+        self.impeller_cb.currentIndexChanged.connect(self._update_cfd_reference)
+        self._update_cfd_reference()
 
         self.pwm_plot = plot_layout.addPlot(title="PWM Command vs. Time", row=2, col=0, colspan=2)  # type: ignore
         self.pwm_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -1416,7 +1456,6 @@ class ThesisDashboard(QMainWindow):
 
         group_box_style = "QGroupBox { border: 1px solid #30363d; border-radius: 6px; margin-top: 24px; padding-top: 24px; font-weight: bold; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; top: 4px; padding: 0 6px; color: #ffffff; }"
         control_group.setStyleSheet(group_box_style)
-        tuning_group.setStyleSheet(group_box_style)
         table_group.setStyleSheet(group_box_style)
 
         self.stacked_widget.addWidget(page_widget)
@@ -1651,9 +1690,11 @@ class ThesisDashboard(QMainWindow):
         else:
             self.power_plot.setTitle("Power vs. Time (no wattmeter data)")
         
-        nre_safe = [max(x, 1e-5) for x in plot_data[6]]
-        npo_safe = [max(x, 1e-5) for x in plot_data[7]]
-        self.npo_scatter.setData(nre_safe, npo_safe)
+        # Only valid points (speed > 0 and power > 0): zeros/NaNs cannot be shown on log axes and would stretch the view away from the CFD curve
+        nre_arr = np.asarray(plot_data[6], dtype=float)
+        npo_arr = np.asarray(plot_data[7], dtype=float)
+        ok = np.isfinite(nre_arr) & np.isfinite(npo_arr) & (nre_arr > 0) & (npo_arr > 0)
+        self.npo_scatter.setData(nre_arr[ok], npo_arr[ok])
 
         tach_ticks = int(0.8 * self.hardware_hz)
         if filt_rpm_data or raw_rpm_data:
@@ -1663,8 +1704,19 @@ class ThesisDashboard(QMainWindow):
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
 
+    def _update_cfd_reference(self) -> None:
+        """Show the CFD N_Po vs N_Re curve that belongs to the selected impeller diameter."""
+        ref = cfd_reference_curve(self.impeller_cb.currentData())
+        if ref is None:
+            self.npo_ref.setData([], [])
+            self.npo_plot.setTitle("Power Number vs. Reynolds Number (no CFD reference for this diameter)")
+            return
+        label, n_re, n_po = ref
+        self.npo_ref.setData(n_re, n_po)
+        self.npo_plot.setTitle(f"Power Number vs. Reynolds Number (CFD reference: {label})")
+
     def _update_jitter_title(self, pwm_col) -> None:
-        """Rolling 3 s PWM statistics: the number to minimise when comparing Kp / alpha settings."""
+        """Rolling 3 s PWM statistics (std and jitter) shown in the PWM plot title."""
         pw = np.asarray(pwm_col[-int(3 * self.hardware_hz):], dtype=float)
         if len(pw) > 5 and np.isfinite(pw).all():
             std = float(np.std(pw))
@@ -1672,12 +1724,6 @@ class ThesisDashboard(QMainWindow):
             self.pwm_plot.setTitle(f"PWM Command vs. Time (last 3 s: std {std:.3f}% | jitter {jitter:.3f}%)")
         else:
             self.pwm_plot.setTitle("PWM Command vs. Time (waiting for extended telemetry...)")
-
-    def _on_apply_gains(self) -> None:
-        if hasattr(self, 'network_thread') and self.network_thread.isRunning():
-            kp, ki, alpha = self.kp_spin.value(), self.ki_spin.value(), self.alpha_spin.value()
-            self.network_thread.send_command(f"CMD:KP,{kp:.4f}\nCMD:KI,{ki:.4f}\nCMD:ALPHA,{alpha:.3f}\n")
-            self.gain_status_lbl.setText(f"Sent: Kp={kp:.4f}  Ki={ki:.3f}  alpha={alpha:.2f}")
 
     def export_data(self) -> None:
         if self.table_model.rowCount() == 0:
