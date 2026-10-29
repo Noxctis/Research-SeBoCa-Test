@@ -1445,7 +1445,9 @@ class ThesisDashboard(QMainWindow):
         # live measured points
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol='o', symbolSize=5, symbolBrush='#d2a8ff', name="Measured")
         self.impeller_cb.currentIndexChanged.connect(self._update_cfd_reference)
+        self.impeller_cb.currentIndexChanged.connect(self._update_axis_limits)
         self._update_cfd_reference()
+        self._update_axis_limits()
 
         self.pwm_plot = plot_layout.addPlot(title="PWM Command vs. Time", row=2, col=0, colspan=2)  # type: ignore
         self.pwm_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -1703,6 +1705,13 @@ class ThesisDashboard(QMainWindow):
             raw_avg = (sum(raw_rpm_data[-raw_win:]) / raw_win) if raw_win > 0 else 0.0
             filt_avg = (sum(filt_rpm_data[-filt_win:]) / filt_win) if filt_win > 0 else 0.0
             self.rpm_plot.setTitle(f"Velocity vs. Time (Raw 0.8s: {raw_avg:.1f} RPM | Filt 0.8s: {filt_avg:.1f} RPM)")
+
+    def _update_axis_limits(self) -> None:
+        """Fixed Y axes per impeller setting: velocity 0-1500 RPM (96 mm) or 0-500 RPM (174 mm); torque 0-0.3 N·m for both."""
+        d = self.impeller_cb.currentData()
+        rpm_max = 1500 if abs(d - 0.0665) < 1e-6 else 500
+        self.rpm_plot.setYRange(0, rpm_max)
+        self.torque_plot.setYRange(0, 0.3)
 
     def _update_cfd_reference(self) -> None:
         """Show the CFD N_Po vs N_Re curve that belongs to the selected impeller diameter."""
