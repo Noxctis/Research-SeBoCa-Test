@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_level".
  *
- * Model version              : 1.10
+ * Model version              : 1.12
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Tue Oct 27 13:53:17 2026
+ * C source code generated on : Wed Nov  4 17:22:31 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)

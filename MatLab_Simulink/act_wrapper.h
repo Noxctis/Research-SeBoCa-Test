@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 int  act_init(void);
-void act_step(uint8_t pump_on, uint16_t pump_pwm);
+void act_step(uint8_t pump_on, uint16_t pump_pwm, uint8_t valve_on, uint16_t valve_pwm);
 void act_stop(void);
 #ifdef __cplusplus
 }

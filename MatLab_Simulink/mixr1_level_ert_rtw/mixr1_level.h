@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_level".
  *
- * Model version              : 1.10
+ * Model version              : 1.12
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Tue Oct 27 13:53:17 2026
+ * C source code generated on : Wed Nov  4 17:22:31 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -74,10 +74,11 @@
 typedef struct {
   real_T y[6];                         /* '<Root>/pack_log' */
   real_T level;                        /* '<Root>/fluid_ctrl' */
-  uint16_T dist;                       /* '<Root>/tof_read' */
-  uint8_T status;                      /* '<Root>/tof_read' */
-  uint8_T newData;                     /* '<Root>/tof_read' */
+  uint16_T pumpPwm;                    /* '<Root>/fluid_ctrl' */
+  uint16_T dist;                       /* '<S2>/tof_read' */
   uint8_T state;                       /* '<Root>/fluid_ctrl' */
+  uint8_T status;                      /* '<S2>/tof_read' */
+  uint8_T newData;                     /* '<S2>/tof_read' */
 } B_mixr1_level_T;
 
 /* Block states (default storage) for system '<Root>' */
@@ -87,14 +88,19 @@ typedef struct {
   real_T bad;                          /* '<Root>/fluid_ctrl' */
   real_T silent;                       /* '<Root>/fluid_ctrl' */
   real_T runSteps;                     /* '<Root>/fluid_ctrl' */
+  real_T outSteps;                     /* '<Root>/fluid_ctrl' */
+  real_T trims;                        /* '<Root>/fluid_ctrl' */
   real_T lvl;                          /* '<Root>/fluid_ctrl' */
   uint8_T st;                          /* '<Root>/fluid_ctrl' */
+  uint8_T prevSt;                      /* '<Root>/fluid_ctrl' */
   uint8_T prevCmd;                     /* '<Root>/fluid_ctrl' */
-  boolean_T doneDoubleBufferReInit;    /* '<Root>/tof_read' */
-  boolean_T started;                   /* '<Root>/tof_read' */
-  boolean_T doneDoubleBufferReInit_d;  /* '<Root>/pack_log' */
+  boolean_T doneDoubleBufferReInit;    /* '<Root>/pack_log' */
   boolean_T doneDoubleBufferReInit_f;  /* '<Root>/fluid_ctrl' */
   boolean_T haveLvl;                   /* '<Root>/fluid_ctrl' */
+  boolean_T holdMode;                  /* '<Root>/fluid_ctrl' */
+  boolean_T doneDoubleBufferReInit_m;  /* '<S2>/tof_read1' */
+  boolean_T doneDoubleBufferReInit_ma; /* '<S2>/tof_read' */
+  boolean_T started;                   /* '<S2>/tof_read' */
   boolean_T doneDoubleBufferReInit_e;  /* '<Root>/Actuators' */
   boolean_T started_l;                 /* '<Root>/Actuators' */
 } DW_mixr1_level_T;
@@ -165,11 +171,32 @@ extern DW_mixr1_level_T mixr1_level_DW;
  * these parameters and exports their symbols.
  *
  */
+extern real_T fc_drainTo;              /* Variable: fc_drainTo
+                                        * Referenced by: '<Root>/Constant5'
+                                        */
+extern real_T fc_overshoot;            /* Variable: fc_overshoot
+                                        * Referenced by: '<Root>/Constant7'
+                                        */
 extern real_T fc_pumpV;                /* Variable: fc_pumpV
                                         * Referenced by: '<Root>/Constant4'
                                         */
+extern real_T fc_settle;               /* Variable: fc_settle
+                                        * Referenced by: '<Root>/Constant9'
+                                        */
 extern real_T fc_target;               /* Variable: fc_target
                                         * Referenced by: '<Root>/Constant1'
+                                        */
+extern real_T fc_tofGain;              /* Variable: fc_tofGain
+                                        * Referenced by: '<S2>/Constant10'
+                                        */
+extern real_T fc_tofIntercept;         /* Variable: fc_tofIntercept
+                                        * Referenced by: '<S2>/Constant12'
+                                        */
+extern real_T fc_tol;                  /* Variable: fc_tol
+                                        * Referenced by: '<Root>/Constant8'
+                                        */
+extern real_T fc_valveV;               /* Variable: fc_valveV
+                                        * Referenced by: '<Root>/Constant6'
                                         */
 extern uint8_T fc_cmd;                 /* Variable: fc_cmd
                                         * Referenced by: '<Root>/Constant'
@@ -201,8 +228,10 @@ extern volatile boolean_T runModel;
  *
  * '<Root>' : 'mixr1_level'
  * '<S1>'   : 'mixr1_level/Actuators'
- * '<S2>'   : 'mixr1_level/fluid_ctrl'
- * '<S3>'   : 'mixr1_level/pack_log'
- * '<S4>'   : 'mixr1_level/tof_read'
+ * '<S2>'   : 'mixr1_level/ToF_Calibrated'
+ * '<S3>'   : 'mixr1_level/fluid_ctrl'
+ * '<S4>'   : 'mixr1_level/pack_log'
+ * '<S5>'   : 'mixr1_level/ToF_Calibrated/tof_read'
+ * '<S6>'   : 'mixr1_level/ToF_Calibrated/tof_read1'
  */
 #endif                                 /* mixr1_level_h_ */
