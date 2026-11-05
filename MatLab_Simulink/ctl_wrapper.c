@@ -9,10 +9,10 @@
 #include "ctl_wrapper.h"
 
 #define CTL_PORT 25000
-#define NVAL 13
+#define NVAL 16
 static const char *names[NVAL] = {"cmd","target","pumpV","valveV","drainTo",
                                   "overshoot","tol","settle","zero","thickness",
-                                  "lgain","lead","trimScale"};
+                                  "lgain","lead","trimScale","react","hold","low"};
 static double val[NVAL];
 static int    isset[NVAL];
 static int    sock = -1;
@@ -61,7 +61,7 @@ static void parse(char *msg)
     }
 }
 
-/* def has NVAL+1 entries (defaults, last one unused); out gets NVAL values + the message counter */
+/* def has NVAL+1 entries (the last is unused); out gets NVAL values + the message counter */
 void ctl_poll(const double *def, double *out)
 {
     char buf[256];

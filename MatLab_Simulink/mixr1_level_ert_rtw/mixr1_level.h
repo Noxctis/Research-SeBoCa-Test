@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_level".
  *
- * Model version              : 1.13
+ * Model version              : 1.15
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Wed Nov  4 23:47:32 2026
+ * C source code generated on : Thu Nov  5 19:15:53 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -29,6 +29,8 @@
 #endif                                 /* mixr1_level_COMMON_INCLUDES_ */
 
 #include "mixr1_level_types.h"
+#include "rtGetInf.h"
+#include "rtGetNaN.h"
 #include <string.h>
 #include "rt_nonfinite.h"
 #include <stddef.h>
@@ -91,15 +93,17 @@ typedef struct {
   real_T silent;                       /* '<Root>/fluid_ctrl' */
   real_T runSteps;                     /* '<Root>/fluid_ctrl' */
   real_T outSteps;                     /* '<Root>/fluid_ctrl' */
-  real_T trims;                        /* '<Root>/fluid_ctrl' */
+  real_T fails;                        /* '<Root>/fluid_ctrl' */
+  real_T curScale;                     /* '<Root>/fluid_ctrl' */
   real_T lvl;                          /* '<Root>/fluid_ctrl' */
+  real_T gap;                          /* '<Root>/fluid_ctrl' */
   uint8_T st;                          /* '<Root>/fluid_ctrl' */
   uint8_T prevSt;                      /* '<Root>/fluid_ctrl' */
   uint8_T prevCmd;                     /* '<Root>/fluid_ctrl' */
+  uint8_T pending;                     /* '<Root>/fluid_ctrl' */
   boolean_T doneDoubleBufferReInit;    /* '<Root>/pack_log' */
   boolean_T doneDoubleBufferReInit_f;  /* '<Root>/fluid_ctrl' */
   boolean_T haveLvl;                   /* '<Root>/fluid_ctrl' */
-  boolean_T holdMode;                  /* '<Root>/fluid_ctrl' */
   boolean_T ctlStarted;                /* '<Root>/fluid_ctrl' */
   boolean_T doneDoubleBufferReInit_m;  /* '<S2>/tof_read1' */
   boolean_T doneDoubleBufferReInit_ma; /* '<S2>/tof_read' */

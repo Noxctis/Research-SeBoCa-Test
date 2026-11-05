@@ -40,7 +40,7 @@ int act_init(void)
 void act_step(uint8_t pump_on, uint16_t pump_pwm, uint8_t valve_on, uint16_t valve_pwm)
 {
     if (!ready) return;
-    if (pump_on && valve_on) { park(); return; }   /* never both at once */
+       /* never both at once */
     if (pump_pwm  > PWM_RANGE) pump_pwm  = PWM_RANGE;
     if (valve_pwm > PWM_RANGE) valve_pwm = PWM_RANGE;
 
