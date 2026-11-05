@@ -611,11 +611,11 @@ class JumpSlider(QSlider):
                 self.setValue(QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), pos, span))
         super().mousePressEvent(ev)
 
-    def wheelEvent(self, ev):
+    def wheelEvent(self, e):
         if self.hasFocus():
-            super().wheelEvent(ev)
-        elif ev is not None:
-            ev.ignore()
+            super().wheelEvent(e)
+        elif e is not None:
+            e.ignore()
 
 
 class RpmSpinBox(QSpinBox):
@@ -630,15 +630,15 @@ class RpmSpinBox(QSpinBox):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-    def focusInEvent(self, ev):
-        super().focusInEvent(ev)
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
         QTimer.singleShot(0, self.selectAll)
 
-    def wheelEvent(self, ev):
+    def wheelEvent(self, e):
         if self.hasFocus():
-            super().wheelEvent(ev)
-        elif ev is not None:
-            ev.ignore()
+            super().wheelEvent(e)
+        elif e is not None:
+            e.ignore()
 
 
 class ZeroBasedAxis:
@@ -761,10 +761,10 @@ class StepTestWindow(QDialog):
         self.btn_abort.setEnabled(False)
         self.finished.emit()
 
-    def closeEvent(self, ev):
+    def closeEvent(self, a0):
         self.abort()
-        if ev is not None:
-            ev.accept()
+        if a0 is not None:
+            a0.accept()
 
 
 SEQ_DEFAULT_RPMS = [44, 56, 57, 74, 78, 88, 125, 158, 185, 207, 228, 248, 260, 278, 288, 298, 307, 316, 324, 330, 332, 340, 342, 347]
@@ -969,10 +969,10 @@ class RpmSequenceWindow(QDialog):
         elif time.monotonic() - self._last_feed_wall > 3.0:
             self._end(False, "No telemetry for 3 s: sequence aborted, motor commanded to 0.")
 
-    def closeEvent(self, ev):
+    def closeEvent(self, a0):
         if self._running:
             self._end(False, "Window closed: sequence aborted, motor stopped.")
-        super().closeEvent(ev)
+        super().closeEvent(a0)
 
     # ---- live telemetry (called by the dashboard on every UI tick)
     def feed(self, samples: Sequence[Sample]) -> None:
