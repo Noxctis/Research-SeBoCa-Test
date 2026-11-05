@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_level".
  *
- * Model version              : 1.12
+ * Model version              : 1.13
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Wed Nov  4 17:22:31 2026
+ * C source code generated on : Wed Nov  4 23:47:32 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -74,6 +74,7 @@
 typedef struct {
   real_T y[6];                         /* '<Root>/pack_log' */
   real_T level;                        /* '<Root>/fluid_ctrl' */
+  real_T d;                            /* '<S2>/tof_read1' */
   uint16_T pumpPwm;                    /* '<Root>/fluid_ctrl' */
   uint16_T dist;                       /* '<S2>/tof_read' */
   uint8_T state;                       /* '<Root>/fluid_ctrl' */
@@ -83,6 +84,7 @@ typedef struct {
 
 /* Block states (default storage) for system '<Root>' */
 typedef struct {
+  real_T prevSeq;                      /* '<Root>/fluid_ctrl' */
   real_T buf[3];                       /* '<Root>/fluid_ctrl' */
   real_T nvalid;                       /* '<Root>/fluid_ctrl' */
   real_T bad;                          /* '<Root>/fluid_ctrl' */
@@ -98,6 +100,7 @@ typedef struct {
   boolean_T doneDoubleBufferReInit_f;  /* '<Root>/fluid_ctrl' */
   boolean_T haveLvl;                   /* '<Root>/fluid_ctrl' */
   boolean_T holdMode;                  /* '<Root>/fluid_ctrl' */
+  boolean_T ctlStarted;                /* '<Root>/fluid_ctrl' */
   boolean_T doneDoubleBufferReInit_m;  /* '<S2>/tof_read1' */
   boolean_T doneDoubleBufferReInit_ma; /* '<S2>/tof_read' */
   boolean_T started;                   /* '<S2>/tof_read' */
@@ -107,10 +110,10 @@ typedef struct {
 
 /* Parameters (default storage) */
 struct P_mixr1_level_T_ {
-  real_T Constant2_Value;              /* Expression: 400
+  real_T Constant2_Value;              /* Expression: 389
                                         * Referenced by: '<Root>/Constant2'
                                         */
-  real_T Constant3_Value;              /* Expression: 5
+  real_T Constant3_Value;              /* Expression: 0
                                         * Referenced by: '<Root>/Constant3'
                                         */
   real_T fc_mark_Value;                /* Expression: 0

@@ -2,7 +2,7 @@
 ## Makefile generated for component 'mixr1_level'. 
 ## 
 ## Makefile     : mixr1_level.mk
-## Generated on : Wed Nov 04 14:39:59 2026
+## Generated on : Wed Nov 04 19:44:42 2026
 ## Final product: $(RELATIVE_PATH_TO_ANCHOR)/mixr1_level.elf
 ## Product type : executable
 ## 
@@ -187,7 +187,7 @@ INCLUDES = $(INCLUDES_BUILDINFO)
 DEFINES_ = -DXCP_ADDRESS_GRANULARITY=XCP_ADDRESS_GRANULARITY_BYTE -DCODERTARGET_XCP_DAQ_PACKED_MODE -DCODERTARGET_XCP_MAX_CONTIGUOUS_SAMPLES=2 -D__MW_TARGET_USE_HARDWARE_RESOURCES_H__
 DEFINES_BUILD_ARGS = -DCLASSIC_INTERFACE=0 -DALLOCATIONFCN=0 -DTERMFCN=1 -DONESTEPFCN=1 -DMAT_FILE=0 -DMULTI_INSTANCE_CODE=0 -DEXT_MODE=1 -DINTEGER_CODE=0 -DMT=0
 DEFINES_CUSTOM = 
-DEFINES_OPTS = -DXCP_EXTMODE_SIMULATION_TIME_IN_TICKS -DXCP_MEM_BLOCK_1_SIZE=32 -DXCP_MEM_BLOCK_1_NUMBER=1 -DXCP_MEM_BLOCK_2_SIZE=56 -DXCP_MEM_BLOCK_2_NUMBER=1 -DXCP_MEM_BLOCK_3_SIZE=56 -DXCP_MEM_BLOCK_3_NUMBER=1 -DXCP_MEM_RESERVED_POOLS_TOTAL_SIZE=1000130 -DXCP_MEM_RESERVED_POOLS_NUMBER=2 -DXCP_MEM_DAQ_RESERVED_POOL_BLOCKS_NUMBER=3 -DXCP_MEM_DAQ_RESERVED_POOLS_NUMBER=1 -DXCP_MIN_EVENT_NO_RESERVED_POOL=1 -DXCP_MAX_CTO_SIZE=32 -DXCP_MAX_DTO_SIZE=65532 -DXCP_MAX_ODT_ENTRY_SIZE=255 -DEXTMODE_XCP_TRIGGER_SUPPORT -DXCP_TIMESTAMP_BASED_ON_SIMULATION_TIME -DON_TARGET_WAIT_FOR_START=1 -DXCP_DAQ_SUPPORT -DXCP_CALIBRATION_SUPPORT -DXCP_TIMESTAMP_SUPPORT -DXCP_SET_MTA_SUPPORT -DTID01EQ=0 -DXCP_EXTMODE_RUN_BACKGROUND_FLUSH
+DEFINES_OPTS = -DXCP_EXTMODE_SIMULATION_TIME_IN_TICKS -DXCP_MEM_BLOCK_1_SIZE=32 -DXCP_MEM_BLOCK_1_NUMBER=1 -DXCP_MEM_BLOCK_2_SIZE=56 -DXCP_MEM_BLOCK_2_NUMBER=1 -DXCP_MEM_BLOCK_3_SIZE=64 -DXCP_MEM_BLOCK_3_NUMBER=1 -DXCP_MEM_RESERVED_POOLS_TOTAL_SIZE=1000130 -DXCP_MEM_RESERVED_POOLS_NUMBER=2 -DXCP_MEM_DAQ_RESERVED_POOL_BLOCKS_NUMBER=3 -DXCP_MEM_DAQ_RESERVED_POOLS_NUMBER=1 -DXCP_MIN_EVENT_NO_RESERVED_POOL=1 -DXCP_MAX_CTO_SIZE=32 -DXCP_MAX_DTO_SIZE=65532 -DXCP_MAX_ODT_ENTRY_SIZE=255 -DEXTMODE_XCP_TRIGGER_SUPPORT -DXCP_TIMESTAMP_BASED_ON_SIMULATION_TIME -DON_TARGET_WAIT_FOR_START=1 -DXCP_DAQ_SUPPORT -DXCP_CALIBRATION_SUPPORT -DXCP_TIMESTAMP_SUPPORT -DXCP_SET_MTA_SUPPORT -DTID01EQ=0 -DXCP_EXTMODE_RUN_BACKGROUND_FLUSH
 DEFINES_SKIPFORSIL = -D__linux__ -DARM_PROJECT -D_USE_TARGET_UDP_ -D_RUNONTARGETHARDWARE_BUILD_ -DSTACK_SIZE=200000 -DRT
 DEFINES_STANDARD = -DMODEL=mixr1_level -DNUMST=1 -DNCSTATES=0 -DHAVESTDIO -DMODEL_HAS_DYNAMICALLY_LOADED_SFCNS=0
 
@@ -197,7 +197,7 @@ DEFINES = $(DEFINES_) $(DEFINES_BUILD_ARGS) $(DEFINES_CUSTOM) $(DEFINES_OPTS) $(
 ## SOURCE FILES
 ###########################################################################
 
-SRCS = $(START_DIR)/act_wrapper.c $(START_DIR)/tof_wrapper.c $(START_DIR)/VL53L4CD_api.c $(START_DIR)/platform.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_mode.c $(START_DIR)/mixr1_level_ert_rtw/mixr1_level.c $(START_DIR)/mixr1_level_ert_rtw/mixr1_level_data.c $(START_DIR)/mixr1_level_ert_rtw/rtGetInf.c $(START_DIR)/mixr1_level_ert_rtw/rtGetNaN.c $(START_DIR)/mixr1_level_ert_rtw/rt_nonfinite.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_common.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_classic_trigger.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_param_default_tcp.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_standard.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_daq.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_calibration.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_fifo.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_transport.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_mem_default.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_drv_rtiostream.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/common/xcp_utils.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_frame_tcp.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/MW_raspi_init.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/periphs/MW_Pyserver_control.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/linuxtimelogger/linuxTimeLogger.c $(MATLAB_ROOT)/rtw/c/src/ext_mode/common/rtiostream_interface.c $(MATLAB_ROOT)/toolbox/coder/rtiostream/src/rtiostreamtcpip/rtiostream_tcpip.c $(MATLAB_ROOT)/toolbox/coder/rtiostream/src/utils/rtiostream_utils.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_platform_default.c $(MATLAB_ROOT)/toolbox/target/codertarget/rtos/src/linuxinitialize.c
+SRCS = $(START_DIR)/act_wrapper.c $(START_DIR)/tof_wrapper.c $(START_DIR)/VL53L4CD_api.c $(START_DIR)/platform.c $(START_DIR)/ctl_wrapper.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_mode.c $(START_DIR)/mixr1_level_ert_rtw/mixr1_level.c $(START_DIR)/mixr1_level_ert_rtw/mixr1_level_data.c $(START_DIR)/mixr1_level_ert_rtw/rtGetInf.c $(START_DIR)/mixr1_level_ert_rtw/rtGetNaN.c $(START_DIR)/mixr1_level_ert_rtw/rt_nonfinite.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_common.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_classic_trigger.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/ext_mode/src/xcp_ext_param_default_tcp.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_standard.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_daq.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/protocol/src/xcp_calibration.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_fifo.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_transport.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_mem_default.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_drv_rtiostream.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/common/xcp_utils.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/transport/src/xcp_frame_tcp.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/MW_raspi_init.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/periphs/MW_Pyserver_control.c $(MATLAB_ROOT)/toolbox/rpib/raspiML/src/linuxtimelogger/linuxTimeLogger.c $(MATLAB_ROOT)/rtw/c/src/ext_mode/common/rtiostream_interface.c $(MATLAB_ROOT)/toolbox/coder/rtiostream/src/rtiostreamtcpip/rtiostream_tcpip.c $(MATLAB_ROOT)/toolbox/coder/rtiostream/src/utils/rtiostream_utils.c $(MATLAB_ROOT)/toolbox/coder/xcp/src/target/server/platform/default/xcp_platform_default.c $(MATLAB_ROOT)/toolbox/target/codertarget/rtos/src/linuxinitialize.c
 
 MAIN_SRC = $(START_DIR)/mixr1_level_ert_rtw/ert_main.c
 
@@ -207,7 +207,7 @@ ALL_SRCS = $(SRCS) $(MAIN_SRC)
 ## OBJECTS
 ###########################################################################
 
-OBJS = act_wrapper.c.o tof_wrapper.c.o VL53L4CD_api.c.o platform.c.o xcp_ext_mode.c.o mixr1_level.c.o mixr1_level_data.c.o rtGetInf.c.o rtGetNaN.c.o rt_nonfinite.c.o xcp_ext_common.c.o xcp_ext_classic_trigger.c.o xcp_ext_param_default_tcp.c.o xcp.c.o xcp_standard.c.o xcp_daq.c.o xcp_calibration.c.o xcp_fifo.c.o xcp_transport.c.o xcp_mem_default.c.o xcp_drv_rtiostream.c.o xcp_utils.c.o xcp_frame_tcp.c.o MW_raspi_init.c.o MW_Pyserver_control.c.o linuxTimeLogger.c.o rtiostream_interface.c.o rtiostream_tcpip.c.o rtiostream_utils.c.o xcp_platform_default.c.o linuxinitialize.c.o
+OBJS = act_wrapper.c.o tof_wrapper.c.o VL53L4CD_api.c.o platform.c.o ctl_wrapper.c.o xcp_ext_mode.c.o mixr1_level.c.o mixr1_level_data.c.o rtGetInf.c.o rtGetNaN.c.o rt_nonfinite.c.o xcp_ext_common.c.o xcp_ext_classic_trigger.c.o xcp_ext_param_default_tcp.c.o xcp.c.o xcp_standard.c.o xcp_daq.c.o xcp_calibration.c.o xcp_fifo.c.o xcp_transport.c.o xcp_mem_default.c.o xcp_drv_rtiostream.c.o xcp_utils.c.o xcp_frame_tcp.c.o MW_raspi_init.c.o MW_Pyserver_control.c.o linuxTimeLogger.c.o rtiostream_interface.c.o rtiostream_tcpip.c.o rtiostream_utils.c.o xcp_platform_default.c.o linuxinitialize.c.o
 
 MAIN_OBJ = ert_main.c.o
 
@@ -515,6 +515,10 @@ VL53L4CD_api.c.o : $(START_DIR)/VL53L4CD_api.c
 
 
 platform.c.o : $(START_DIR)/platform.c
+	$(CC) $(CFLAGS) -o "$@" "$<"
+
+
+ctl_wrapper.c.o : $(START_DIR)/ctl_wrapper.c
 	$(CC) $(CFLAGS) -o "$@" "$<"
 
 
