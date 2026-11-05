@@ -85,11 +85,20 @@ class Impeller:
     max_rpm: int
     step_rpm: int       # arrow-key / spin-box step
     page_rpm: int       # PageUp / PageDown step of the slider
+    sequence_rpms: Tuple[int, ...] = ()      # default speeds of the RPM Sequence window for this impeller
+
+    def default_sequence(self) -> Tuple[List[int], List[int]]:
+        """(speeds that fit within max_rpm, speeds that were left out because they are above it)."""
+        kept = [v for v in self.sequence_rpms if v <= self.max_rpm]
+        return kept, [v for v in self.sequence_rpms if v > self.max_rpm]
 
 
 IMPELLERS: Tuple[Impeller, ...] = (          # index 0 is the default
-    Impeller("96mm", "96 mm impeller (D = 0.0665 m)", 0.0665, 1300, 10, 50),
-    Impeller("174mm", "174 mm impeller (D = 0.1207 m)", 0.1207, 350, 5, 10),
+    Impeller("96mm", "96 mm impeller (D = 0.0665 m)", 0.0665, 1300, 10, 50, (
+        67, 87, 106, 121, 142, 164, 250, 332, 407, 479, 544, 611, 682, 741, 801, 855, 911, 954, 1018, 1071, 1112, 1159, 1172,
+        1230, 1258, 1290, 1326, 1362)),
+    Impeller("174mm", "174 mm impeller (D = 0.1207 m)", 0.1207, 350, 5, 10, (
+        48, 89, 123, 149, 176, 195, 211, 226, 240, 254, 265, 275, 280, 284, 291, 292, 298, 299, 303, 319, 322, 328, 331)),
 )
 
 
@@ -767,9 +776,6 @@ class StepTestWindow(QDialog):
             a0.accept()
 
 
-SEQ_DEFAULT_RPMS = [44, 56, 57, 74, 78, 88, 125, 158, 185, 207, 228, 248, 260, 278, 288, 298, 307, 316, 324, 330, 332, 340, 342, 347]
-
-
 class RpmSequenceWindow(QDialog):
     """Runs a list of target speeds (closed loop) one after another through the daemon, holding each for the dwell time.
     For every step the last part of the hold (steady state) is averaged and one row is appended to
@@ -795,7 +801,10 @@ class RpmSequenceWindow(QDialog):
         self._last_t: Optional[float] = None
         self._last_feed_wall = time.monotonic()
         self.csv_path = self.summary_name = self.log_name = self.stamp = self.imp_label = ""
+        self._texts: Dict[str, str] = {}      # speed list per impeller label (so an edited list is remembered when you switch back)
+        self._shown_label = ""
         self._build_ui()
+        self.refresh_for_impeller()
         self._watchdog = QTimer(self)
         self._watchdog.timeout.connect(self._check_alive)
         self._watchdog.start(1000)
@@ -805,11 +814,15 @@ class RpmSequenceWindow(QDialog):
         lay = QVBoxLayout(self)
         box = QGroupBox("Sequence")
         form = QFormLayout(box)
-        self.list_edit = QPlainTextEdit(" ".join(str(v) for v in SEQ_DEFAULT_RPMS))
+        self.list_edit = QPlainTextEdit()
         self.list_edit.setFixedHeight(80)
         self.list_edit.setToolTip("Target speeds in RPM, separated by spaces, commas or new lines. Decimals are rounded to whole RPM. "
                                   "Put 0 first to record the zero reading.")
         form.addRow("Target speeds (RPM):", self.list_edit)
+        self.limit_note = QLabel("")
+        self.limit_note.setWordWrap(True)
+        self.limit_note.setStyleSheet(f"color: {C.ORANGE}; font-weight: normal;")
+        form.addRow("", self.limit_note)
         self.dwell_sb = self._seconds_box(15.0, 2.0, "")
         form.addRow("Hold each speed for:", self.dwell_sb)
         self.avg_sb = self._seconds_box(5.0, 0.5, "Only the LAST part of every hold is averaged, so the settling after the speed change is left out")
@@ -871,6 +884,19 @@ class RpmSequenceWindow(QDialog):
     @property
     def running(self) -> bool:
         return self._running
+
+    def refresh_for_impeller(self) -> None:
+        """Show the speed list of the selected impeller (its default the first time, an edited one when you come back to it)."""
+        imp = self.main.current_impeller()
+        if imp.label != self._shown_label:
+            if self._shown_label:
+                self._texts[self._shown_label] = self.list_edit.toPlainText()
+            self._shown_label = imp.label
+            kept, dropped = imp.default_sequence()
+            self.list_edit.setPlainText(self._texts.get(imp.label) or " ".join(str(v) for v in kept))
+            self.limit_note.setText(f"Left out of the default list (above the {imp.max_rpm} RPM limit of the {imp.label} impeller): "
+                                    f"{', '.join(str(v) for v in dropped)}" if dropped else "")
+        self.setWindowTitle(f"RPM Sequence - {imp.label} impeller (max {imp.max_rpm} RPM)")
 
     def _parse_list(self) -> List[int]:
         tokens = [t for t in re.split(r"[,;\s]+", self.list_edit.toPlainText().strip()) if t]
@@ -1366,6 +1392,8 @@ class ThesisDashboard(QMainWindow):
         self._update_target_info(self.target_slider.value())
         self._reset_axes()
         self._update_cfd_reference()
+        if self.seq_win is not None:
+            self.seq_win.refresh_for_impeller()
 
     def _on_impeller_changed(self, idx: int) -> None:
         if idx == self._impeller_idx:
