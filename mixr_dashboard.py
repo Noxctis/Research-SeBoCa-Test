@@ -1427,11 +1427,14 @@ class ThesisDashboard(QMainWindow):
         """Send the fixed encoder / window settings (256 PPR = 1024 CPR, 20 ms)."""
         self._send_command(f"CMD:CPR,{ENCODER_CPR}\nCMD:WIN,{SAMPLE_WINDOW_US}\n")
 
-    def emergency_stop(self) -> None:
-        """STOP: aborts a running RPM sequence / step test and commands 0 RPM."""
+    def _abort_automations(self, message: str) -> None:
         for win in (self.seq_win, self.step_win):
             if win is not None and win.running:
-                win.abort("Stopped with the STOP button. Motor stopped.")
+                win.abort(message)
+
+    def emergency_stop(self) -> None:
+        """STOP: aborts a running RPM sequence / step test and commands 0 RPM."""
+        self._abort_automations("Stopped with the STOP button. Motor stopped.")
         self._target_timer.stop()
         self.target_slider.setValue(0)
         self._send_target(0)                            # also sent when the slider was already at 0
@@ -1486,16 +1489,27 @@ class ThesisDashboard(QMainWindow):
         if state is LinkState.SILENT:
             return                                       # only a warning, the link state itself does not change
         previous, self.link_state = self.link_state, state
+        if previous is LinkState.MODE2 and state is not LinkState.MODE2:
+            # The daemon drops the motor to 0 RPM when the link is lost; a running test must not carry on and restart it after a reconnect.
+            self._abort_automations("The link to the daemon was lost: stopped. The motor is commanded to 0.")
         if state is LinkState.MODE3:
             self._set_matlab_card(active=True)
             self.switch_page(1)
             self.set_manual_controls_enabled(False)
-        elif state is LinkState.MODE2 and previous is not LinkState.MODE2:
+        elif state is LinkState.MODE2:
+            # MODE2 is announced once per daemon session. It can arrive while the state was already MODE2 (the connection dropped and
+            # came back so fast that no 'searching' state was seen): that is a NEW session and starts from 0 RPM as well.
+            if previous is LinkState.MODE2:
+                self._abort_automations("The connection to the daemon was restarted: stopped. The motor is commanded to 0.")
             self._set_matlab_card(active=False)
             self.switch_page(0)
             self.set_manual_controls_enabled(True)
             self._send_hardware_config()
-            self._send_target(self.target_slider.value())
+            # The daemon starts every dashboard session at 0 RPM. Show 0 here as well and never re-send the old slider value, otherwise
+            # the motor would restart by itself at the old speed every time the link comes back after a drop.
+            self._target_timer.stop()
+            self.target_slider.setValue(0)
+            self._send_target(0)
             self.reset_telemetry()
 
     # ------------------------------------------------------------------ telemetry and plots
