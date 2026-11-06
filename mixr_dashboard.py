@@ -119,6 +119,8 @@ SAMPLE_PERIOD_S = 0.01                # the daemon streams at 100 Hz
 FLUID_DENSITY = 996.3                 # kg/m3, test water
 FLUID_VISCOSITY = 8.54e-4             # Pa.s, test water
 
+HEARTBEAT_INTERVAL_S = 0.5           # send CMD:HB this often; the daemon drops a dashboard that is silent for 2 s
+LINK_TIMEOUT_S = 2.0                  # no telemetry from the daemon for this long (it streams at 100 Hz) = the link is dead -> reconnect
 TARGET_SEND_INTERVAL_MS = 100         # while the slider is dragged, at most one command per interval
 TORQUE_AXIS_MIN_MAX_NM = 0.3          # the torque plot shows at least 0 .. 0.3 N.m
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))     # every exported file lands next to this script
@@ -400,8 +402,14 @@ def parse_packet(line: str) -> Optional[Packet]:
     return Packet(raw, filt, revs, pwm, target, volts, milliamps, watts, torque)
 
 
+class LinkLost(Exception):
+    """The connection is open but the daemon has stopped sending (cable pulled, Pi off, Wi-Fi gone)."""
+
+
 def describe_connect_error(exc: BaseException, host: str, port: int) -> str:
     """One short, specific reason for a failed connection, shown in the status line."""
+    if isinstance(exc, LinkLost):
+        return str(exc)
     if isinstance(exc, socket.gaierror):
         return f"cannot find '{host}' on the network: set MIXR_HOST to the Pi's IP address (on the Pi: hostname -I)"
     if isinstance(exc, ConnectionRefusedError):
@@ -421,6 +429,8 @@ class _StreamState:
         self.link: Optional[LinkState] = None
         self.warned_silent = False
         self.connect_time = time.time()
+        self.last_rx = time.time()          # last time any byte arrived from the daemon
+        self.last_hb = 0.0                  # last time CMD:HB was sent
 
 
 class TelemetryReceiver(QThread):
@@ -529,16 +539,25 @@ class TelemetryReceiver(QThread):
                     except queue.Empty:
                         break
                 self._reset_flag = False
+            now = time.time()
             payload = self._take_commands()
+            if now - st.last_hb >= HEARTBEAT_INTERVAL_S:        # heartbeat: tells the daemon this dashboard is still alive
+                payload += "CMD:HB\n"
+                st.last_hb = now
             if payload:
-                sock.sendall(payload.encode("utf-8"))
+                sock.sendall(payload.encode("utf-8"))           # a dead link that cannot take even this raises -> reconnect
             try:
                 chunk = sock.recv(1024).decode("utf-8", errors="ignore")
             except socket.timeout:
+                # Once data has flowed, silence means the link is dead (TCP itself would wait minutes before noticing).
+                # Before the first packet the existing "connected but NO DATA" diagnosis is kept instead.
+                if st.link is not None and now - st.last_rx > LINK_TIMEOUT_S:
+                    raise LinkLost(f"no data from the Pi for {LINK_TIMEOUT_S:.0f} s: link lost (Ethernet unplugged / Pi off). Reconnecting...")
                 self._warn_if_silent(st)
                 continue
             if not chunk:
                 return                                          # the daemon closed the connection
+            st.last_rx = time.time()
             st.buffer += chunk
             while "\n" in st.buffer:
                 line, st.buffer = st.buffer.split("\n", 1)
