@@ -1,0 +1,2 @@
+step,target_rpm,t_start_s,t_end_s,avg_from_s,n_samples,rpm_raw_mean,rpm_raw_std,rpm_filtered_mean,torque_Nm_mean,torque_Nm_std,pwm_pct_mean,bus_V_mean,current_mA_mean,elec_power_W_mean,shaft_power_W,N_Re,N_Po,rho_kg_m3,mu_Pa_s,D_m,impeller,matching_log_csv
+1,48,0.0,15.0,10.0,501,48.02394589820359,7.84242264741826,48.03285519161676,0.004000000000000001,8.673617379884035e-19,4.6439966287425145,24.198602794411176,43.63672654690619,1.0559435129740518,0.02011995533345675,13606.109205689967,1.5365230291050618,996.3,0.000854,0.1207,174mm,mixr1_174mm_20261106_210152_sequence_log.csv
