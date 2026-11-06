@@ -138,6 +138,7 @@ FLUID_VISCOSITY = 8.54e-4             # Pa.s, test water
 
 HEARTBEAT_INTERVAL_S = 0.5           # send CMD:HB this often; the daemon drops a dashboard that is silent for 2 s
 LINK_TIMEOUT_S = 2.0                  # no telemetry from the daemon for this long (it streams at 100 Hz) = the link is dead -> reconnect
+POWER_LIMIT_W = 72                    # safety power cap enforced by the daemon on the Pi (config.hpp POWER_LIMIT_W); shown here only
 TARGET_SEND_INTERVAL_MS = 100         # while the slider is dragged, at most one command per interval
 TORQUE_AXIS_MIN_MAX_NM = 0.3          # the torque plot shows at least 0 .. 0.3 N.m
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))     # every exported file lands next to this script
@@ -453,6 +454,7 @@ class _StreamState:
 class TelemetryReceiver(QThread):
     """TCP client of the daemon. Pushes (time_s, Packet) into `telemetry_queue`, sends the queued commands, reports the link state."""
     link_signal = pyqtSignal(object, str)          # (LinkState, message)
+    event_signal = pyqtSignal(str)                 # "EVT:" lines from the daemon (POWER_LIMIT,1 / POWER_LIMIT,0 / POWER_TRIP,<reason>)
 
     def __init__(self, config: SystemConfig, telemetry_queue: queue.Queue):
         super().__init__()
@@ -588,6 +590,9 @@ class TelemetryReceiver(QThread):
                                                     "daemon holds port 5000, or it is stuck starting). On the Pi: pgrep -a mixr1_daemon")
 
     def _handle_line(self, line: str, st: _StreamState) -> None:
+        if line.startswith("EVT:"):
+            self.event_signal.emit(line[4:].strip())
+            return
         packet = parse_packet(line)
         if packet is None:
             return
@@ -772,12 +777,16 @@ class StepTestWindow(QDialog):
         if busy:
             QMessageBox.warning(self, "Busy", f"Stop the {busy} first.")
             return
+        if isinstance(main, ThesisDashboard) and not main.confirm_impeller(self):
+            return
         self._elapsed = 0
         self.btn_start.setEnabled(False)
         self.btn_abort.setEnabled(True)
         self.started.emit()
         self._show_step()
         self._timer.start()
+        if isinstance(main, ThesisDashboard):
+            main._run_confirmed = True                                       # confirmed above: the 10 % step must not ask again
 
     def abort(self, message: str = "Test Aborted. Motor stopped.") -> None:
         if self.running:
@@ -971,7 +980,8 @@ class RpmSequenceWindow(QDialog):
             QMessageBox.warning(self, "Busy", f"Stop the {busy} first.")
             return
         minutes = len(seq) * self.dwell_sb.value() / 60
-        if QMessageBox.question(self, "Start", f"Impeller: {impeller.label}.\nThe motor will run through {len(seq)} speeds for "
+        if QMessageBox.question(self, "Safety check before starting",
+                                f"Is the {impeller.name} fitted on the shaft?\n\nThe motor will run through {len(seq)} speeds for "
                                 f"{self.dwell_sb.value():g} s each ({minutes:.1f} min) and then stop. Start now?") != QMessageBox.StandardButton.Yes:
             return
 
@@ -991,6 +1001,7 @@ class RpmSequenceWindow(QDialog):
         self._running = True
         self.btn_start.setEnabled(False)
         self.btn_abort.setEnabled(True)
+        main._run_confirmed = True                                           # impeller confirmed above: no second question at step 1
         self._go(0)
 
     def _go(self, idx: int) -> None:
@@ -1126,11 +1137,16 @@ class ThesisDashboard(QMainWindow):
         self.npo_skipped_torque = 0           # ... of which torque <= 0, so no N_Po point
         self._impeller_idx = 0
         self._pending_target = 0
+        self._run_confirmed = False           # impeller check answered "yes" for the current run
+        self._motor_cmd_running = False       # the last target sent was > 0
+        self._confirm_pending = False         # the impeller question is on screen
+        self._power_limited = False           # the daemon reports its 72 W cap is active
 
         self.network_thread = TelemetryReceiver(self.config, self.telemetry_queue)
         self._build_ui()
         self._apply_impeller()
         self.network_thread.link_signal.connect(self.on_link_changed)
+        self.network_thread.event_signal.connect(self.on_daemon_event)
         self.network_thread.start()
 
         self._ui_timer = QTimer(self)
@@ -1476,13 +1492,54 @@ class ThesisDashboard(QMainWindow):
             self.network_thread.send_command(command)
 
     def _send_target(self, rpm: int) -> None:
+        if rpm > 0:
+            self._motor_cmd_running = True
+        else:
+            self._motor_cmd_running = False
+            if self.running_automation() is None:
+                self._run_confirmed = False                       # stopped: the next start asks again
         self._send_command(f"CMD:RPM,{rpm}\n")
+
+    def confirm_impeller(self, parent: Optional[QWidget] = None) -> bool:
+        """Safety question before the motor starts from 0: is the selected impeller really the one on the shaft?"""
+        imp = self.current_impeller()
+        box = QMessageBox(parent or self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Safety check before starting")
+        box.setText(f"Is the <b>{imp.name}</b> fitted on the shaft?")
+        box.setInformativeText(f"The speed limit ({imp.max_rpm} RPM), N_Re and N_Po all use this impeller.\n"
+                               f"If a different impeller is fitted, answer No and change it in the Impeller list first.")
+        yes = box.addButton(f"Yes, {imp.label} is fitted - start", QMessageBox.ButtonRole.YesRole)
+        box.addButton("No", QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(None)                                  # no accidental Enter
+        box.exec()
+        ok = box.clickedButton() is yes
+        self._run_confirmed = ok
+        return ok
+
+    def _ask_then_start(self, value: int) -> None:
+        self._confirm_pending = False
+        if self.confirm_impeller():
+            self.target_slider.setValue(value)                       # now sent normally
 
     def _update_target_info(self, value: int) -> None:
         mx = self.current_impeller().max_rpm
         self.target_info_lbl.setText(f"{value} RPM = {100.0 * value / mx:.0f} % of the {mx} RPM maximum")
 
     def _on_slider_value_changed(self, value: int) -> None:
+        if value > 0 and not self._motor_cmd_running and not self._run_confirmed:
+            # starting from 0: hold the motor at 0 and ask about the impeller first (after this event, so the slider is released)
+            self._target_timer.stop()
+            self.target_slider.setSliderDown(False)
+            for widget in (self.target_slider, self.target_input):
+                widget.blockSignals(True)
+                widget.setValue(0)
+                widget.blockSignals(False)
+            self._update_target_info(0)
+            if not self._confirm_pending:
+                self._confirm_pending = True
+                QTimer.singleShot(0, lambda v=value: self._ask_then_start(v))
+            return
         self._update_target_info(value)
         if self.target_slider.isSliderDown():
             self._pending_target = value
@@ -1511,6 +1568,24 @@ class ThesisDashboard(QMainWindow):
         self._target_timer.stop()
         self.target_slider.setValue(0)
         self._send_target(0)                            # also sent when the slider was already at 0
+
+    def on_daemon_event(self, event: str) -> None:
+        if event.startswith("POWER_LIMIT,"):
+            self._power_limited = event.endswith("1")
+        elif event.startswith("POWER_TRIP"):
+            reason = event.split(",", 1)[1] if "," in event else "OVERLOAD"
+            self._power_limited = False
+            self._abort_automations(f"Safety trip on the Pi ({reason}). Motor stopped.")
+            self._target_timer.stop()
+            self.target_slider.setValue(0)                         # the daemon already stopped the motor; keep the slider in step
+            self._send_target(0)
+            if reason == "STALL":
+                text = ("The motor was switched OFF: PWM was on but the shaft was not turning (stall / jammed impeller).\n\n"
+                        "Check the impeller and the shaft before starting again.")
+            else:
+                text = (f"The motor was switched OFF: the power went far above the {POWER_LIMIT_W} W limit "
+                        f"(overload / short).\n\nCheck the impeller, the shaft and the wiring before starting again.")
+            QMessageBox.warning(self, "Safety trip", text)
 
     def set_manual_controls_enabled(self, enabled: bool) -> None:
         allowed = enabled and self.link_state is not LinkState.MODE3
@@ -1558,6 +1633,8 @@ class ThesisDashboard(QMainWindow):
 
     def on_link_changed(self, state: LinkState, message: str) -> None:
         self.status_lbl.setText(f"Status: {message}")
+        if state is not LinkState.MODE2:
+            self._power_limited = False
         self.status_lbl.setStyleSheet(f"font-weight: bold; color: {STATE_COLORS[state]}; font-size: 14px; padding: 10px;")
         if state is LinkState.SILENT:
             return                                       # only a warning, the link state itself does not change
@@ -1694,6 +1771,8 @@ class ThesisDashboard(QMainWindow):
         volts, milliamps, elec = avg("bus_v"), avg("current_ma"), avg("elec_power_w")
         electrical = (f"{elec:.2f} W | {volts:.2f} V | {milliamps:.0f} mA" if np.isfinite(elec)
                       else ("no wattmeter data" if data is not None else "-"))
+        if self._power_limited and data is not None:
+            electrical += f"  \u26a0 CAPPED ({POWER_LIMIT_W} W limit)"
         entries = (
             (self.rpm_legend, self.rpm_raw_line, f"Raw: {fmt(avg('raw_rpm'), '.1f', 'RPM')}"),
             (self.rpm_legend, self.rpm_filt_line, f"Filtered: {fmt(avg('filt_rpm'), '.1f', 'RPM')}"),
