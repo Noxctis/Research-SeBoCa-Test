@@ -86,6 +86,10 @@ class Impeller:
     step_rpm: int       # arrow-key / spin-box step
     page_rpm: int       # PageUp / PageDown step of the slider
     sequence_rpms: Tuple[int, ...] = ()      # default speeds of the RPM Sequence window for this impeller
+    graph_max_rpm: int = 0                   # top of the Velocity vs. Time axis; 0 = 110 % of max_rpm
+
+    def velocity_axis_top(self) -> float:
+        return float(self.graph_max_rpm) if self.graph_max_rpm > 0 else self.max_rpm * 1.1
 
     def default_sequence(self) -> Tuple[List[int], List[int]]:
         """(speeds that fit within max_rpm, speeds that were left out because they are above it)."""
@@ -98,7 +102,8 @@ IMPELLERS: Tuple[Impeller, ...] = (          # index 0 is the default
         67, 87, 106, 121, 142, 164, 250, 332, 407, 479, 544, 611, 682, 741, 801, 855, 911, 954, 1018, 1071, 1112, 1159, 1172,
         1230, 1258, 1290, 1326, 1362)),
     Impeller("174mm", "174 mm impeller (D = 0.1207 m)", 0.1207, 350, 5, 10, (
-        48, 89, 123, 149, 176, 195, 211, 226, 240, 254, 265, 275, 280, 284, 291, 292, 298, 299, 303, 319, 322, 328, 331)),
+        48, 89, 123, 149, 176, 195, 211, 226, 240, 254, 265, 275, 280, 284, 291, 292, 298, 299, 303, 319, 322, 328, 331),
+        graph_max_rpm=400),                  # velocity graph 0..400 RPM (speed limit stays 350)
 )
 
 
@@ -1584,7 +1589,7 @@ class ThesisDashboard(QMainWindow):
 
     def _reset_axes(self) -> None:
         """Empty-plot Y ranges: RPM 0..110 % of the impeller's max, torque, power, PWM 0..100 %."""
-        self.zero_axes[self.rpm_plot].set_range(self.current_impeller().max_rpm * 1.1)
+        self.zero_axes[self.rpm_plot].set_range(self.current_impeller().velocity_axis_top())
         self.zero_axes[self.torque_plot].set_range(TORQUE_AXIS_MIN_MAX_NM)
         self.zero_axes[self.power_plot].set_range(1.0)
         self.zero_axes[self.pwm_plot].set_range(100.0)
