@@ -94,7 +94,7 @@ class Impeller:
 
 
 IMPELLERS: Tuple[Impeller, ...] = (          # index 0 is the default
-    Impeller("96mm", "96 mm impeller (D = 0.0665 m)", 0.0665, 1300, 10, 50, (
+    Impeller("96mm", "96 mm impeller (D = 0.0665 m)", 0.0665, 1400, 10, 50, (
         67, 87, 106, 121, 142, 164, 250, 332, 407, 479, 544, 611, 682, 741, 801, 855, 911, 954, 1018, 1071, 1112, 1159, 1172,
         1230, 1258, 1290, 1326, 1362)),
     Impeller("174mm", "174 mm impeller (D = 0.1207 m)", 0.1207, 350, 5, 10, (
