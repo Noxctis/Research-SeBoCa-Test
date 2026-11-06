@@ -121,14 +121,18 @@ class SystemConfig:
 ENCODER_CPR = 1024.0                  # 256 PPR x 4
 SAMPLE_WINDOW_US = 20000              # 20 ms
 SAMPLE_PERIOD_S = 0.01                # the daemon streams at 100 Hz
-# N_Po vs N_Re: only STEADY operating points are plotted (no start-up, ramp-down, coasting to 0 or sequence step changes).
-NPO_STEADY_WINDOW_S = 1.0             # the speed must have been steady for this long
+# N_Po vs N_Re: points are plotted while the motor is driven (target > 0) and the speed is either following the target or steady
+# (also when it settles a little off the target, or cannot reach it). Start-up, step changes, a target of 0 and coasting are left out.
+NPO_TRACK_WINDOW_S = 0.5              # PI mode: window for both checks below
+NPO_STEADY_STD_FRAC = 0.02            # PI mode "steady": RPM spread over the window max 2 % of the mean ...
+NPO_STEADY_STD_MIN_RPM = 3.0          # ... or 3 RPM, whichever is larger
+NPO_TARGET_TOL_FRAC = 0.05            # ... average distance to the (moving) target within 5 %
+NPO_TARGET_TOL_MIN_RPM = 8.0          # ... (at least 8 RPM, for low speeds)
 NPO_MIN_RPM = 30.0                    # below this N_Po (power / n^3) is dominated by noise
-NPO_MAX_RPM_STD_FRAC = 0.03           # filtered RPM spread over the window: max 3 % of the mean
-NPO_TARGET_TOL_FRAC = 0.03            # PI mode: mean RPM within 3 % (at least 5 RPM) of a target that did not change in the window
-NPO_TARGET_TOL_MIN_RPM = 5.0
-NPO_PWM_STEADY_PCT = 0.5              # open loop: PWM unchanged (within 0.5 %) over the window
-POWER_AXIS_HEADROOM = 1.35            # power plot: top of the axis 35 % above the highest value, so lines stay clear of the legend
+NPO_STEADY_WINDOW_S = 1.0             # open loop (no target): the speed must have been steady for this long
+NPO_MAX_RPM_STD_FRAC = 0.03           # ... filtered RPM spread max 3 % of the mean
+NPO_PWM_STEADY_PCT = 0.5              # ... on a PWM unchanged within 0.5 %
+POWER_AXIS_HEADROOM = 1.15            # power plot: top of the axis 15 % above the highest value (the legend is above the plot)
 FLUID_DENSITY = 996.3                 # kg/m3, test water
 FLUID_VISCOSITY = 8.54e-4             # Pa.s, test water
 
@@ -1118,6 +1122,8 @@ class ThesisDashboard(QMainWindow):
         self.step_win: Optional[StepTestWindow] = None
         self.seq_win: Optional[RpmSequenceWindow] = None
         self.npo_store = NpoStore()
+        self.npo_valid = 0                    # on-target samples seen (N_Po plot)
+        self.npo_skipped_torque = 0           # ... of which torque <= 0, so no N_Po point
         self._impeller_idx = 0
         self._pending_target = 0
 
@@ -1191,11 +1197,6 @@ class ThesisDashboard(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        self.readout_lbl = QLabel("")                # live numbers live here, NOT in the plot titles (long titles forced the plots wider than the window)
-        self.readout_lbl.setWordWrap(True)
-        self.readout_lbl.setStyleSheet(f"color: {C.MUTED}; font-weight: bold; padding: 2px 6px;")
-        self.readout_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        right_layout.addWidget(self.readout_lbl)
         right_split = QSplitter(Qt.Orientation.Vertical)
         right_split.setChildrenCollapsible(False)
         right_split.addWidget(self._build_plot_area())
@@ -1322,41 +1323,50 @@ class ThesisDashboard(QMainWindow):
         area = pg.GraphicsLayoutWidget()
         area.setMinimumSize(300, 250)
 
-        # time plots (titles are static; live numbers are in the readout line above the plots)
-        self.rpm_plot = self._new_plot(area, "Velocity vs. Time", 0, 0, y_label="RPM")
-        self.power_plot = self._new_plot(area, "Power vs. Time", 0, 1, y_label="Power (W)")
-        self.torque_plot = self._new_plot(area, "Torque vs. Time", 1, 0, y_label="N·m")
-        self.pwm_plot = self._new_plot(area, "PWM Command vs. Time", 2, 0, colspan=2, y_label="PWM %", x_label="t (s)")
-        self.pwm_plot.getViewBox().setXLink(self.rpm_plot.getViewBox())
-        # legend on one row with a dark backing, live values in it (same numbers as the readout line)
-        self.power_legend = self.power_plot.addLegend(offset=(10, 5), colCount=2, brush=pg.mkBrush(13, 17, 23, 210))
+        # time plots: live readings (0.8 s averages) are in each plot's legend, like the Power plot
+        self.rpm_plot, self.rpm_legend = self._new_plot(area, "Velocity vs. Time", 0, 0, y_label="Velocity (RPM)", legend_cols=3)
+        self.power_plot, self.power_legend = self._new_plot(area, "Power vs. Time", 0, 1, y_label="Power (W)", legend_cols=2)
+        self.torque_plot, self.torque_legend = self._new_plot(area, "Torque vs. Time", 1, 0, y_label="Torque (N·m)", x_label="t (s)")
+        self.torque_plot.getViewBox().setXLink(self.rpm_plot.getViewBox())
 
         self.rpm_raw_line = self.rpm_plot.plot([], [], pen=pg.mkPen(C.BLUE, width=1, style=Qt.PenStyle.DashLine))
         self.rpm_filt_line = self.rpm_plot.plot([], [], pen=pg.mkPen(C.BLUE, width=2))
         self.target_line = self.rpm_plot.plot([], [], pen=pg.mkPen(C.TEXT, width=1, style=Qt.PenStyle.DotLine), connect="finite")
-        self.power_line = self.power_plot.plot([], [], pen=pg.mkPen("#3fb950", width=2), name="Shaft (torque x speed)")
-        self.elec_power_line = self.power_plot.plot([], [], pen=pg.mkPen(C.ORANGE, width=2), name="Electrical (wattmeter)", connect="finite")
+        self.power_line = self.power_plot.plot([], [], pen=pg.mkPen("#3fb950", width=2))
+        self.elec_power_line = self.power_plot.plot([], [], pen=pg.mkPen(C.ORANGE, width=2), connect="finite")
         self.torque_line = self.torque_plot.plot([], [], pen=pg.mkPen("#ff7b72", width=2), connect="finite")
-        self.pwm_line = self.pwm_plot.plot([], [], pen=pg.mkPen("#3fb950", width=1), connect="finite")
+        for legend, item, name in ((self.rpm_legend, self.rpm_raw_line, "Raw"), (self.rpm_legend, self.rpm_filt_line, "Filtered"),
+                                   (self.rpm_legend, self.target_line, "Target"), (self.power_legend, self.power_line, "Shaft"),
+                                   (self.power_legend, self.elec_power_line, "Electrical"), (self.torque_legend, self.torque_line, "Torque")):
+            legend.addItem(item, name)
 
-        self.zero_axes = {plot: ZeroBasedAxis(plot) for plot in (self.rpm_plot, self.power_plot, self.torque_plot, self.pwm_plot)}
+        self.zero_axes = {plot: ZeroBasedAxis(plot) for plot in (self.rpm_plot, self.power_plot, self.torque_plot)}
 
         # N_Po vs N_Re: the CFD reference of the selected impeller, with every measured point of the run on top
-        self.npo_plot = self._new_plot(area, "Power Number vs. Reynolds Number", 1, 1, y_label="N_Po", x_label="N_Re")
+        self.npo_plot, self.npo_legend = self._new_plot(area, "Power Number vs. Reynolds Number", 1, 1, y_label="N_Po", x_label="N_Re",
+                                                        legend_cols=2)
         self.npo_plot.getViewBox().setMouseEnabled(x=True, y=True)
         self.npo_plot.setLogMode(x=True, y=True)
-        self.npo_legend = self.npo_plot.addLegend(offset=(10, 10))
-        for legend in (self.power_legend, self.npo_legend):
-            legend.mouseDragEvent = lambda ev: ev.ignore()          # legends stay where they are (not draggable)
         self.npo_ref = self.npo_plot.plot([], [], pen=pg.mkPen(C.ORANGE, width=2), symbol="s", symbolSize=4, symbolBrush=C.ORANGE, symbolPen=None)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol="o", symbolSize=5, symbolBrush=C.PURPLE)
         return area
 
     @staticmethod
     def _new_plot(area: pg.GraphicsLayoutWidget, title: str, row: int, col: int, colspan: int = 1,
-                  y_label: str = "", x_label: str = "") -> pg.PlotItem:
-        plot = area.addPlot(row=row, col=col, colspan=colspan)  # type: ignore[attr-defined]
-        plot.setTitle(title, size="10pt")
+                  y_label: str = "", x_label: str = "", legend_cols: int = 1) -> Tuple[pg.PlotItem, pg.LegendItem]:
+        """A plot with its title and its legend. The legend gets its OWN row between the title and the plot, so it can never cover
+        the curves and cannot be dragged. Returns (plot, legend)."""
+        cell = area.addLayout(row=row, col=col, colspan=colspan)          # type: ignore[attr-defined]
+        cell.setContentsMargins(0, 0, 0, 0)
+        cell.setSpacing(0)
+        cell.addLabel(title, row=0, col=0, size="10pt")
+        legend = pg.LegendItem(offset=None, colCount=legend_cols, horSpacing=10, verSpacing=-4, labelTextSize="8pt")
+        legend.mouseDragEvent = lambda ev: ev.ignore()                      # type: ignore[method-assign]
+        # never let the legend text make the plot wider than the window (on a narrow screen the text is cut instead)
+        legend.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        legend.setMinimumWidth(0)
+        cell.addItem(legend, row=1, col=0)
+        plot = cell.addPlot(row=2, col=0)
         plot.showGrid(x=True, y=True, alpha=0.3)
         plot.getViewBox().setMouseEnabled(x=True, y=False)
         for side in ("left", "bottom"):
@@ -1365,7 +1375,7 @@ class ThesisDashboard(QMainWindow):
             plot.setLabel("left", y_label)
         if x_label:
             plot.setLabel("bottom", x_label)
-        return plot
+        return plot, legend
 
     def _build_matlab_page(self) -> QWidget:
         page = QWidget()
@@ -1454,11 +1464,11 @@ class ThesisDashboard(QMainWindow):
         self.npo_legend.clear()
         if curve is None:
             self.npo_ref.setData([], [])
-            self.npo_legend.addItem(self.npo_scatter, "Measured (steady points)")
+            self.npo_legend.addItem(self.npo_scatter, "Measured (on target)")
             return
         self.npo_ref.setData(*curve)
         self.npo_legend.addItem(self.npo_ref, f"CFD reference ({imp.label})")
-        self.npo_legend.addItem(self.npo_scatter, "Measured (steady points)")
+        self.npo_legend.addItem(self.npo_scatter, "Measured (on target)")
 
     # ------------------------------------------------------------------ motor target
     def _send_command(self, command: str) -> None:
@@ -1581,18 +1591,19 @@ class ThesisDashboard(QMainWindow):
             self.network_thread.reset_time()
         self.table_model.clear_data()
         self.npo_store.clear()
+        self.npo_valid = 0
+        self.npo_skipped_torque = 0
         for line in (self.rpm_raw_line, self.rpm_filt_line, self.target_line, self.torque_line, self.power_line,
-                     self.elec_power_line, self.pwm_line, self.npo_scatter):
+                     self.elec_power_line, self.npo_scatter):
             line.setData([], [])
-        self.readout_lbl.setText("")
+        self._update_legends(None)
         self._reset_axes()
 
     def _reset_axes(self) -> None:
-        """Empty-plot Y ranges: RPM 0..110 % of the impeller's max, torque, power, PWM 0..100 %."""
+        """Empty-plot Y ranges: RPM 0..110 % of the impeller's max (or its graph_max_rpm), torque, power."""
         self.zero_axes[self.rpm_plot].set_range(self.current_impeller().velocity_axis_top())
         self.zero_axes[self.torque_plot].set_range(TORQUE_AXIS_MIN_MAX_NM)
         self.zero_axes[self.power_plot].set_range(1.0)
-        self.zero_axes[self.pwm_plot].set_range(100.0)
 
     def _make_sample(self, t: float, p: Packet, diameter_m: float) -> Sample:
         torque = p.torque_nm                                     # NaN without a torque sensor: power and N_Po then stay 0, the torque column shows "-"
@@ -1626,7 +1637,6 @@ class ThesisDashboard(QMainWindow):
         self.rpm_filt_line.setData(t, col("filt_rpm"))
         target = col("target_rpm")
         self.target_line.setData(t, np.where(target > 0, target, np.nan))      # hide the target line while it is 0
-        self.pwm_line.setData(t, col("pwm_pct"))
         self.torque_line.setData(t, col("torque_nm"))
         self.power_line.setData(t, col("shaft_power_w"))
         self.elec_power_line.setData(t, col("elec_power_w"))
@@ -1640,73 +1650,108 @@ class ThesisDashboard(QMainWindow):
         power_top = power[np.isfinite(power)]
         top = float(power_top.max()) if power_top.size else 0.0
         self.zero_axes[self.power_plot].set_range(max(1.0, nice_ceil(top * POWER_AXIS_HEADROOM)), power)
-        self._update_power_legend(data)
+        self._update_legends(data)
 
         # Measured N_Po: the WHOLE run, not only the visible 30 s, but only steady operating points
         steady = self._npo_steady_flags(data, len(new_samples))
-        if any([self.npo_store.add(s.n_re, s.n_po) for s, ok in zip(new_samples, steady) if ok]):
+        added = False
+        for s, ok in zip(new_samples, steady):
+            if not ok:
+                continue
+            self.npo_valid += 1
+            if not (s.n_po > 0 and s.n_re > 0):
+                self.npo_skipped_torque += 1                          # valid speed, but torque <= 0 (or no torque): N_Po meaningless
+            added = self.npo_store.add(s.n_re, s.n_po) or added
+        if added:
             self.npo_scatter.setData(*self.npo_store.arrays())
+        self._update_npo_legend()
 
-        self.readout_lbl.setText(self._readout_text(data))
+    def _update_npo_legend(self) -> None:
+        """'Measured' entry: how many on-target samples were used, and how many had to be skipped because torque was <= 0."""
+        label = self.npo_legend.getLabel(self.npo_scatter) if hasattr(self.npo_legend, "getLabel") else None
+        if label is None:
+            return
+        text = f"Measured: {self.npo_valid - self.npo_skipped_torque} samples"
+        if self.npo_skipped_torque:
+            text += f" ({self.npo_skipped_torque} skipped: torque \u2264 0)"
+        label.setText(text)
 
-    def _update_power_legend(self, data: np.ndarray) -> None:
-        """Legend entries show the 0.8 s average of each curve, so the plot reads the same as the numbers above it."""
+    def _update_legends(self, data: Optional[np.ndarray]) -> None:
+        """Live readings in the plot legends: 0.8 s averages (data=None: empty plots, no numbers)."""
         n = int(0.8 / SAMPLE_PERIOD_S)
 
-        def avg(name: str) -> str:
+        def avg(name: str) -> float:
+            if data is None:
+                return NAN
             v = data[-n:, IDX[name]]
             v = v[np.isfinite(v)]
-            return f"{v.mean():.2f} W" if v.size else "no data"
+            return float(v.mean()) if v.size else NAN
 
-        for item, text in ((self.power_line, f"Shaft (torque x speed): {avg('shaft_power_w')}"),
-                           (self.elec_power_line, f"Electrical (wattmeter): {avg('elec_power_w')}")):
-            label = self.power_legend.getLabel(item) if hasattr(self.power_legend, "getLabel") else None
+        def fmt(value: float, spec: str, unit: str) -> str:
+            return f"{value:{spec}} {unit}" if np.isfinite(value) else "-"
+
+        target = avg("target_rpm")
+        volts, milliamps, elec = avg("bus_v"), avg("current_ma"), avg("elec_power_w")
+        electrical = (f"{elec:.2f} W | {volts:.2f} V | {milliamps:.0f} mA" if np.isfinite(elec)
+                      else ("no wattmeter data" if data is not None else "-"))
+        entries = (
+            (self.rpm_legend, self.rpm_raw_line, f"Raw: {fmt(avg('raw_rpm'), '.1f', 'RPM')}"),
+            (self.rpm_legend, self.rpm_filt_line, f"Filtered: {fmt(avg('filt_rpm'), '.1f', 'RPM')}"),
+            (self.rpm_legend, self.target_line, f"Target: {fmt(target, '.0f', 'RPM') if not (np.isfinite(target) and target <= 0) else 'off'}"),
+            (self.power_legend, self.power_line, f"Shaft: {fmt(avg('shaft_power_w'), '.2f', 'W')}"),
+            (self.power_legend, self.elec_power_line, f"Electrical: {electrical}"),
+            (self.torque_legend, self.torque_line,
+             f"Torque: {fmt(avg('torque_nm'), '.4f', 'N·m') if data is None or np.isfinite(avg('torque_nm')) else 'no sensor data'}"),
+        )
+        for legend, item, text in entries:
+            label = legend.getLabel(item) if hasattr(legend, "getLabel") else None
             if label is not None:
                 label.setText(text)
 
     @staticmethod
     def _npo_steady_flags(data: np.ndarray, n_new: int) -> List[bool]:
-        """For each of the last n_new rows: is the rig at a steady operating point there? Looks back NPO_STEADY_WINDOW_S.
-        Steady = the motor is commanded to run, the speed is above NPO_MIN_RPM and settled, and (PI mode) on a target that has not
-        changed, or (open loop) on a PWM that has not changed. Start-up, ramp-down, a target of 0 and coasting are all excluded."""
-        win = int(NPO_STEADY_WINDOW_S / SAMPLE_PERIOD_S)
+        """For each of the last n_new rows: is the rig at a valid operating point there?
+        PI mode (target > 0): the filtered speed has followed the target (which may be moving, e.g. a manual ramp) within
+        NPO_TARGET_TOL for the last NPO_TRACK_WINDOW_S, and the target was above 0 the whole time.
+        Open loop (no target): the speed is steady on a constant, non-zero PWM for NPO_STEADY_WINDOW_S.
+        Excluded: start-up, step changes until the speed reaches the new target, a target of 0, coasting down, very low speeds."""
+        track_win = int(NPO_TRACK_WINDOW_S / SAMPLE_PERIOD_S)
+        steady_win = int(NPO_STEADY_WINDOW_S / SAMPLE_PERIOD_S)
         rows = data.shape[0]
         rpm_all, tgt_all, pwm_all = data[:, IDX["filt_rpm"]], data[:, IDX["target_rpm"]], data[:, IDX["pwm_pct"]]
         flags: List[bool] = []
         for i in range(rows - n_new, rows):
-            if i + 1 < win:
+            if not (np.isfinite(rpm_all[i]) and rpm_all[i] >= NPO_MIN_RPM):
                 flags.append(False)
                 continue
-            sl = slice(i + 1 - win, i + 1)
-            rpm, tgt, pwm = rpm_all[sl], tgt_all[sl], pwm_all[sl]
+            if np.isfinite(tgt_all[i]) and tgt_all[i] > 0:                   # PI mode: on target (constant or ramping)
+                if i + 1 < track_win:
+                    flags.append(False)
+                    continue
+                sl = slice(i + 1 - track_win, i + 1)
+                rpm, tgt = rpm_all[sl], tgt_all[sl]
+                if not (np.isfinite(tgt).all() and (tgt > 0).all()):
+                    flags.append(False)                                      # the target was 0 a moment ago: still starting up
+                    continue
+                tol = np.maximum(NPO_TARGET_TOL_MIN_RPM, NPO_TARGET_TOL_FRAC * tgt)
+                on_target = bool(np.mean(np.abs(rpm - tgt)) <= np.mean(tol))     # following the (maybe moving) target
+                mean = float(np.mean(rpm))
+                steady = float(np.std(rpm)) <= max(NPO_STEADY_STD_MIN_RPM, NPO_STEADY_STD_FRAC * mean)   # settled, even off target
+                flags.append(on_target or steady)
+                continue
+            if i + 1 < steady_win:
+                flags.append(False)
+                continue
+            sl = slice(i + 1 - steady_win, i + 1)
+            rpm, pwm = rpm_all[sl], pwm_all[sl]
             mean = float(np.mean(rpm))
-            if not np.isfinite(mean) or mean < NPO_MIN_RPM or float(np.std(rpm)) > NPO_MAX_RPM_STD_FRAC * mean:
+            if not np.isfinite(mean) or float(np.std(rpm)) > NPO_MAX_RPM_STD_FRAC * mean:
                 flags.append(False)
-                continue
-            if np.isfinite(tgt).all() and tgt[-1] > 0:                       # PI mode: on a constant target
-                tol = max(NPO_TARGET_TOL_MIN_RPM, NPO_TARGET_TOL_FRAC * tgt[-1])
-                flags.append(float(np.ptp(tgt)) == 0.0 and abs(mean - tgt[-1]) <= tol)
             elif np.isfinite(pwm).all():                                     # open loop: on a constant, non-zero PWM
-                flags.append(pwm[-1] > 0 and float(np.ptp(pwm)) <= NPO_PWM_STEADY_PCT)
+                flags.append(bool(pwm[-1] > 0 and float(np.ptp(pwm)) <= NPO_PWM_STEADY_PCT))
             else:                                                            # no command data (basic telemetry): speed steadiness only
                 flags.append(True)
         return flags
-
-    def _readout_text(self, data: np.ndarray) -> str:
-        """One line of live numbers: 0.8 s averages, wattmeter, PWM statistics of the last 3 s."""
-        tach = int(0.8 / SAMPLE_PERIOD_S)
-        parts = [f"Raw 0.8 s: {data[-tach:, IDX['raw_rpm']].mean():.1f} RPM", f"Filt 0.8 s: {data[-tach:, IDX['filt_rpm']].mean():.1f} RPM"]
-        last = data[-1]
-        if np.isfinite(last[IDX["elec_power_w"]]):
-            parts.append(f"Electrical: {last[IDX['bus_v']]:.2f} V | {last[IDX['current_ma']]:.0f} mA | {last[IDX['elec_power_w']]:.2f} W")
-        else:
-            parts.append("Electrical: no wattmeter data")
-        pwm = data[-int(3.0 / SAMPLE_PERIOD_S):, IDX["pwm_pct"]]
-        if len(pwm) > 5 and np.isfinite(pwm).all():
-            parts.append(f"PWM last 3 s: std {pwm.std():.3f} % | jitter {np.sqrt(np.mean(np.diff(pwm) ** 2)):.3f} %")
-        else:
-            parts.append("PWM: waiting for extended telemetry")
-        return "   |   ".join(parts)
 
     # ------------------------------------------------------------------ export
     def export_silent(self, kind: str, stamp: Optional[str] = None, extra: Optional[Dict[str, str]] = None) -> Optional[str]:
