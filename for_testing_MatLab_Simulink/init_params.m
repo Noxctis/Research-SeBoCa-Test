@@ -1,0 +1,12 @@
+fc_cmd    = Simulink.Parameter(uint8(0)); fc_cmd.CoderInfo.StorageClass    = 'ExportedGlobal';
+fc_target = Simulink.Parameter(50);       fc_target.CoderInfo.StorageClass = 'ExportedGlobal';
+fc_pumpV  = Simulink.Parameter(6);       fc_pumpV.CoderInfo.StorageClass  = 'ExportedGlobal';
+fc_mark = Simulink.Parameter(0); fc_mark.CoderInfo.StorageClass = 'ExportedGlobal';
+fc_drainTo = Simulink.Parameter(0);  fc_drainTo.CoderInfo.StorageClass = 'ExportedGlobal';
+fc_valveV  = Simulink.Parameter(6); fc_valveV.CoderInfo.StorageClass  = 'ExportedGlobal';
+fc_overshoot = Simulink.Parameter(20); fc_overshoot.CoderInfo.StorageClass = 'ExportedGlobal';
+fc_tol       = Simulink.Parameter(2);  fc_tol.CoderInfo.StorageClass       = 'ExportedGlobal';
+fc_settle    = Simulink.Parameter(5);  fc_settle.CoderInfo.StorageClass    = 'ExportedGlobal';
+fc_tofOffset    = Simulink.Parameter(int16(-26)); fc_tofOffset.CoderInfo.StorageClass    = 'ExportedGlobal';
+fc_tofGain      = Simulink.Parameter(1.00901);    fc_tofGain.CoderInfo.StorageClass      = 'ExportedGlobal';
+fc_tofIntercept = Simulink.Parameter(14.477);     fc_tofIntercept.CoderInfo.StorageClass = 'ExportedGlobal';

@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_level".
  *
- * Model version              : 1.10
+ * Model version              : 1.15
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Tue Oct 27 13:53:17 2026
+ * C source code generated on : Thu Nov  5 19:15:53 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -29,5 +29,6 @@
 #endif
 
 extern real_T rt_roundd_snf(real_T u);
+extern real_T rt_powd_snf(real_T u0, real_T u1);
 
 #endif                                 /* mixr1_level_private_h_ */
