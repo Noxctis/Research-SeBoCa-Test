@@ -1319,7 +1319,7 @@ class ThesisDashboard(QMainWindow):
 
         # time plots (titles are static; live numbers are in the readout line above the plots)
         self.rpm_plot = self._new_plot(area, "Velocity vs. Time", 0, 0, y_label="RPM")
-        self.power_plot = self._new_plot(area, "Power vs. Time", 0, 1, y_label="Power (W)", x_label="t (s)")
+        self.power_plot = self._new_plot(area, "Power vs. Time", 0, 1, y_label="Power (W)")
         self.torque_plot = self._new_plot(area, "Torque vs. Time", 1, 0, y_label="N·m")
         self.pwm_plot = self._new_plot(area, "PWM Command vs. Time", 2, 0, colspan=2, y_label="PWM %", x_label="t (s)")
         self.pwm_plot.getViewBox().setXLink(self.rpm_plot.getViewBox())
@@ -1341,6 +1341,8 @@ class ThesisDashboard(QMainWindow):
         self.npo_plot.getViewBox().setMouseEnabled(x=True, y=True)
         self.npo_plot.setLogMode(x=True, y=True)
         self.npo_legend = self.npo_plot.addLegend(offset=(10, 10))
+        for legend in (self.power_legend, self.npo_legend):
+            legend.mouseDragEvent = lambda ev: ev.ignore()          # legends stay where they are (not draggable)
         self.npo_ref = self.npo_plot.plot([], [], pen=pg.mkPen(C.ORANGE, width=2), symbol="s", symbolSize=4, symbolBrush=C.ORANGE, symbolPen=None)
         self.npo_scatter = self.npo_plot.plot([], [], pen=None, symbol="o", symbolSize=5, symbolBrush=C.PURPLE)
         return area
@@ -1640,6 +1642,8 @@ class ThesisDashboard(QMainWindow):
         if any([self.npo_store.add(s.n_re, s.n_po) for s, ok in zip(new_samples, steady) if ok]):
             self.npo_scatter.setData(*self.npo_store.arrays())
 
+        self.readout_lbl.setText(self._readout_text(data))
+
     def _update_power_legend(self, data: np.ndarray) -> None:
         """Legend entries show the 0.8 s average of each curve, so the plot reads the same as the numbers above it."""
         n = int(0.8 / SAMPLE_PERIOD_S)
@@ -1682,8 +1686,6 @@ class ThesisDashboard(QMainWindow):
             else:                                                            # no command data (basic telemetry): speed steadiness only
                 flags.append(True)
         return flags
-
-        self.readout_lbl.setText(self._readout_text(data))
 
     def _readout_text(self, data: np.ndarray) -> str:
         """One line of live numbers: 0.8 s averages, wattmeter, PWM statistics of the last 3 s."""
