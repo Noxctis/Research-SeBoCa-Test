@@ -980,10 +980,21 @@ class RpmSequenceWindow(QDialog):
             QMessageBox.warning(self, "Busy", f"Stop the {busy} first.")
             return
         minutes = len(seq) * self.dwell_sb.value() / 60
-        if QMessageBox.question(self, "Safety check before starting",
-                                f"Is the {impeller.name} fitted on the shaft?\n\nThe motor will run through {len(seq)} speeds for "
-                                f"{self.dwell_sb.value():g} s each ({minutes:.1f} min) and then stop. Start now?") != QMessageBox.StandardButton.Yes:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Safety check before starting")
+        box.setText(f"Is the {impeller.name} fitted on the shaft?\n\nThe motor will run through {len(seq)} speeds for "
+                    f"{self.dwell_sb.value():g} s each ({minutes:.1f} min) and then stop. Start now?")
+        tare_cb = QCheckBox("Tare (zero) the torque sensor before this start")
+        tare_cb.setChecked(main._tare_at_start)
+        box.setCheckBox(tare_cb)
+        yes = box.addButton("Yes, start", QMessageBox.ButtonRole.YesRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(None)
+        box.exec()
+        if box.clickedButton() is not yes:
             return
+        main.set_tare_at_start(tare_cb.isChecked())
 
         self._seq, self._idx = seq, 0
         self.table.setRowCount(0)
@@ -1140,6 +1151,7 @@ class ThesisDashboard(QMainWindow):
         self._run_confirmed = False           # impeller check answered "yes" for the current run
         self._motor_cmd_running = False       # the last target sent was > 0
         self._confirm_pending = False         # the impeller question is on screen
+        self._tare_at_start = True            # answer to "tare the torque sensor before this start?" (remembered between starts)
         self._power_limited = False           # the daemon reports its 72 W cap is active
 
         self.network_thread = TelemetryReceiver(self.config, self.telemetry_queue)
@@ -1512,10 +1524,20 @@ class ThesisDashboard(QMainWindow):
         yes = box.addButton(f"Yes, {imp.label} is fitted - start", QMessageBox.ButtonRole.YesRole)
         box.addButton("No", QMessageBox.ButtonRole.NoRole)
         box.setDefaultButton(None)                                  # no accidental Enter
+        tare_cb = QCheckBox("Tare (zero) the torque sensor before this start")
+        tare_cb.setChecked(self._tare_at_start)
+        box.setCheckBox(tare_cb)
         box.exec()
         ok = box.clickedButton() is yes
+        if ok:
+            self.set_tare_at_start(tare_cb.isChecked())
         self._run_confirmed = ok
         return ok
+
+    def set_tare_at_start(self, tare: bool) -> None:
+        """Tell the daemon whether the next start zeroes the torque amplifier (sent BEFORE the RPM command that starts the motor)."""
+        self._tare_at_start = tare
+        self._send_command(f"CMD:STARTTARE,{1 if tare else 0}\n")
 
     def _ask_then_start(self, value: int) -> None:
         self._confirm_pending = False
