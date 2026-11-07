@@ -2,7 +2,9 @@ function T = process_feedback(target, ruler)
 % target: final target in mm for this run; ruler: ruler readings, one per cycle, in order
 if nargin < 2, ruler = []; end
 logdata = evalin('base','logdata');
-save(sprintf('logfb_%03d_%s.mat', target, char(datetime('now','Format','HHmmss'))), 'logdata');
+[logDir, session] = log_session();
+matName = sprintf('logfb_%03d_%s.mat', target, char(datetime('now','Format','HHmmss')));
+save(fullfile(logDir, matName), 'logdata');
 
 d  = squeeze(logdata.Data); if size(d,2) ~= 6, d = d.'; end
 t  = logdata.Time(:);
@@ -48,9 +50,10 @@ end
 T = array2table(rows, 'VariableNames', ...
     {'Cycle','Peak_mm','Settled1_mm','Trims','Final_mm','Final_std_mm','Duration_s','N_frames'});
 T.Target_mm = repmat(target, n, 1);
-T.Ruler_mm  = ruler;
 T.Error_mm  = T.Final_mm - T.Ruler_mm;
+T.Session   = repmat(string(session), n, 1);
+T.LogFile   = repmat(string(matName), n, 1);
+T = movevars(T, 'Session', 'Before', 1);
 disp(T)
-f = 'feedback_measurements.csv';
+f = fullfile(logDir, 'feedback_measurements.csv');
 writetable(T, f, 'WriteMode','append', 'WriteVariableNames', ~isfile(f));
-end
