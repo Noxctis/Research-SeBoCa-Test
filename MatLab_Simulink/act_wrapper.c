@@ -11,6 +11,9 @@
 #define SOL_INB     6
 #define SOL_PWM    12   /* hardware PWM0 */
 #define PWM_RANGE 1024
+/* HARD CAP 50 %: the supply is 24 V and the pump and the solenoid valve are both rated 12 V, so the average voltage at
+   the load may never go above 24 V x 50 % = 12 V, whatever the model asks for (pumpV / valveV above 12 are clipped here). */
+#define PWM_MAX   (PWM_RANGE / 2)
 
 static int ready = 0;
 
@@ -41,8 +44,8 @@ void act_step(uint8_t pump_on, uint16_t pump_pwm, uint8_t valve_on, uint16_t val
 {
     if (!ready) return;
        /* never both at once */
-    if (pump_pwm  > PWM_RANGE) pump_pwm  = PWM_RANGE;
-    if (valve_pwm > PWM_RANGE) valve_pwm = PWM_RANGE;
+    if (pump_pwm  > PWM_MAX) pump_pwm  = PWM_MAX;     /* 50 % = 12 V average */
+    if (valve_pwm > PWM_MAX) valve_pwm = PWM_MAX;
 
     if (pump_on) {
         digitalWrite(PUMP_EN, HIGH);
