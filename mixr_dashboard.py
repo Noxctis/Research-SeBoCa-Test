@@ -777,8 +777,14 @@ class StepTestWindow(QDialog):
         if busy:
             QMessageBox.warning(self, "Busy", f"Stop the {busy} first.")
             return
+        if isinstance(main, ThesisDashboard) and main.link_state is not LinkState.MODE2:
+            QMessageBox.warning(self, "Not available", "The dashboard does not control the motor right now (not connected, or MATLAB "
+                                                       "has the rig in Mode 3).")
+            return
         if isinstance(main, ThesisDashboard) and not main.confirm_impeller(self):
             return
+        if isinstance(main, ThesisDashboard) and main.link_state is not LinkState.MODE2:
+            return                                                   # MATLAB took over while the question was on screen
         self._elapsed = 0
         self.btn_start.setEnabled(False)
         self.btn_abort.setEnabled(True)
@@ -993,6 +999,9 @@ class RpmSequenceWindow(QDialog):
         box.setDefaultButton(None)
         box.exec()
         if box.clickedButton() is not yes:
+            return
+        if main.link_state is not LinkState.MODE2:
+            QMessageBox.warning(self, "Not connected", "The link changed while the question was open (MATLAB Mode 3, or disconnected). Not started.")
             return
         main.set_tare_at_start(tare_cb.isChecked())
 
@@ -1504,6 +1513,16 @@ class ThesisDashboard(QMainWindow):
             self.network_thread.send_command(command)
 
     def _send_target(self, rpm: int) -> None:
+        if rpm > 0 and self.link_state is not LinkState.MODE2:
+            # Last line of defence: a start is only ever sent while the dashboard really controls the motor (never in MATLAB Mode 3,
+            # never while searching), whichever window or dialog asked for it.
+            logger.warning("start to %d RPM ignored: not in Mode 2 (%s)", rpm, self.link_state.value)
+            for widget in (self.target_slider, self.target_input):
+                widget.blockSignals(True)
+                widget.setValue(0)
+                widget.blockSignals(False)
+            self._update_target_info(0)
+            return
         if rpm > 0:
             self._motor_cmd_running = True
         else:
@@ -1541,7 +1560,9 @@ class ThesisDashboard(QMainWindow):
 
     def _ask_then_start(self, value: int) -> None:
         self._confirm_pending = False
-        if self.confirm_impeller():
+        if self.link_state is not LinkState.MODE2:
+            return                                                   # MATLAB took over (or the link dropped) before the question
+        if self.confirm_impeller() and self.link_state is LinkState.MODE2:   # ... or while it was on screen
             self.target_slider.setValue(value)                       # now sent normally
 
     def _update_target_info(self, value: int) -> None:
@@ -1665,6 +1686,17 @@ class ThesisDashboard(QMainWindow):
             # The daemon drops the motor to 0 RPM when the link is lost; a running test must not carry on and restart it after a reconnect.
             self._abort_automations("The link to the daemon was lost: stopped. The motor is commanded to 0.")
         if state is LinkState.MODE3:
+            # MATLAB owns the rig: the daemon has switched the mixer off and forgotten every target. Do the same here, so nothing
+            # on this side (slider value, a confirmed start, a pending drag) is still waiting to restart the motor afterwards.
+            self._abort_automations("MATLAB took control of the rig: stopped. The motor is off.")
+            self._target_timer.stop()
+            self._confirm_pending = False
+            for widget in (self.target_slider, self.target_input):
+                widget.blockSignals(True)
+                widget.setValue(0)
+                widget.blockSignals(False)
+            self._update_target_info(0)
+            self._send_target(0)                         # also clears _run_confirmed: the next start asks about the impeller again
             self._set_matlab_card(active=True)
             self.switch_page(1)
             self.set_manual_controls_enabled(False)

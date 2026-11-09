@@ -1,0 +1,124 @@
+MIXR1 - START-UP AFTER SHUTDOWN
+===============================================================================
+Project folder: C:\Users\Cyril Calo\Desktop\Research-SeBoCa-Test\MatLab_Simulink
+Model:          mixr1_level.slx        Pi: mixr1.local (SSH)
+Rule 1: the 24 V brick stays OFF until step 7.
+Rule 2: fc(0) and check the pump and valve are off BEFORE clicking Stop.
+===============================================================================
+
+1. PHYSICAL CHECK (24 V brick OFF)
+   - Tank empty and dry, floater resting flat and centred under the sensor.
+   - Sensor window clean and dry.
+   - Water in the supply, pump primed, pump / valve / sensor wiring connected.
+   - I2C wires kept away from the pump and valve wires.
+
+2. POWER THE PI
+   - Power the Pi and wait about 1 minute for it to boot.
+
+3. CHECK THE PI (SSH into it)
+     ls /dev/i2c-3                    must exist
+     i2cdetect -y 3                   must show 29 (sensor) and 45 (wattmeter)
+     sudo pkill mixr1_level           exit code 1 only means nothing was running
+     pgrep -a -f "mixr1|controller|backend"    only avahi-daemon is OK
+     vcgencmd get_throttled           should print 0x0
+   If /dev/i2c-3 is missing: in /boot/firmware/config.txt make sure
+   dtparam=spi=on is OFF and dtoverlay=i2c-gpio,bus=3,... is present, reboot.
+   If 29 is missing: check the sensor wiring (3.3 V, GND, SDA GPIO 8, SCL GPIO 7).
+
+4. PREPARE MATLAB (Command Window)
+     cd 'C:\Users\Cyril Calo\Desktop\Research-SeBoCa-Test\MatLab_Simulink'
+     clear fc
+     init_params
+     fc_cmd.Value = uint8(0); fc_cmd.Value        must print 0
+   Open mixr1_level. Stop Time = inf. Solver: fixed-step 0.05.
+   NEVER run init_params while the model is running (it resets everything).
+
+5. START THE MODEL
+   - Hardware tab > Monitor & Tune. The build can take a few minutes.
+   - Running = status bar says External and the Stop button is active.
+   - The pump and valve stay off (fc_cmd = 0).
+
+6. SEND THE PRESET AND WARM UP
+     fc_preset
+   - Leave it alone for about 5 minutes so the sensor settles.
+   - Check the Displays:
+       corrected distance  steady at your zero value (about 389)
+       status              0
+       newData             flickers to 1 about 5 times a second
+       level               about 0
+       state               0
+   - If level is 2 mm or more off with a dry tank and flat floater:
+       fc('zero', <corrected distance shown>)
+   - If status is not 0, or newData stays 0: fix the sensor before going on.
+
+7. SWITCH ON THE 24 V BRICK
+   - Only now. With state 0 the pump and valve stay off.
+   - Keep a hand near the switch for the first fill.
+   - pumpV and valveV are the AVERAGE volts at the load (V_MAX = 24).
+   - Check the pump and valve voltage ratings before raising them.
+
+===============================================================================
+fc COMMAND CHEAT SHEET (MATLAB Command Window, no Ctrl+D needed)
+===============================================================================
+Any new command first goes to state 0 for about 100 ms, then starts.
+A new command also clears a fault (state 9).
+
+  fc(0)                         stop everything
+  fc(1,'target',50)             fill once to the target
+  fc(2)                         drain to empty (stops at drainTo, min 2 mm)
+  fc(3,'target',50)             overfill, settle, trim, then keep regulating
+  fc(4,'target',50)             go to the target, then keep regulating
+  fc(5)                         manual drain (valve open until you stop it)
+  fc(6)                         manual pump (stops at target + overshoot)
+  fc(7,'target',100,'low',80)   hysteresis: valve always open, pump on at
+                                'low', off at the target, repeats until stopped
+  fc('clear')                   go back to the Constant block values
+
+Live values:  target pumpV valveV drainTo overshoot tol settle zero thickness
+              lgain lead trimScale react hold low
+Examples:     fc('pumpV',6,'valveV',12)     fc('tol',2)     fc('settle',5)
+              fc('hold',0)   (state 3 passive, use during ruler measurements)
+              fc('hold',1)   (state 3 keeps correcting)
+
+If MATLAB says "fc appears to be both a function and a variable":  clear fc
+
+STATES
+   0 idle              1 filling             2 draining
+   3 in band (regulating while hold = 1)     4 drain done
+   5 overfill          6 settling            7 trim-drain       8 trim-fill
+   9 FAULT (see the 'reason' Display)
+  11 manual drain     12 manual pump
+  13 hysteresis drain-down     14 hysteresis refill (pump + valve both on)
+  15 hysteresis guard (only if the floor guard was added)
+reason (state 9):  1 no sensor frames   2 invalid readings   3 phase timeout
+
+===============================================================================
+EXPERIMENT REMINDERS
+===============================================================================
+- One Monitor & Tune run per level, 5 cycles per level.
+- Read the ruler as the last thing before draining (state 3 plateau).
+- Right after Stop, run process_feedback(level,[r1 r2 r3 r4 r5]) or
+  process_level(level,[...]). The next run overwrites logdata.
+- Use fc('hold',0) during measurement runs so nothing touches the water.
+
+===============================================================================
+SHUT DOWN
+===============================================================================
+  1. fc(0) and confirm the pump and valve are off.
+  2. Run process_feedback(...) / process_level(...) to export the data.
+  3. Click Stop.
+  4. Switch the 24 V brick off.
+  5. On the Pi:  sudo shutdown -h now   (wait for the activity LED to stop,
+     then unplug).
+
+===============================================================================
+QUICK TROUBLESHOOTING
+===============================================================================
+  No /dev/i2c-3 ...... SPI on in config.txt, or overlay line missing; reboot
+  No 29 on the bus ... sensor wiring / power
+  state 9 ............ read 'reason'; check status and newData; vcgencmd
+                       get_throttled; wiring and capacitors near the 24 V
+  Command ignored .... model not rebuilt after changing ctl_wrapper.c or
+                       fluid_ctrl; NVAL must match names[] and the MATLAB
+                       defs vector (NVAL 16 now: 16 values + 1 counter)
+  Level off by 2-3 mm  re-zero with fc('zero',...) after the 5 minute warm-up

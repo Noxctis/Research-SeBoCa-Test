@@ -3,7 +3,9 @@ function T = process_level(level, ruler)
 % ruler : your ruler readings in mm, one per fill, in order (NaN if unknown)
 if nargin < 2, ruler = []; end
 logdata = evalin('base','logdata');
-save(sprintf('logdata_%03d_%s.mat', level, char(datetime('now','Format','HHmmss'))), 'logdata');
+[logDir, session] = log_session();
+matName = sprintf('logdata_%03d_%s.mat', level, char(datetime('now','Format','HHmmss')));
+save(fullfile(logDir, matName), 'logdata');
 
 d = squeeze(logdata.Data); if size(d,2) ~= 6, d = d.'; end
 isDone   = d(:,5) == 3;
@@ -27,7 +29,9 @@ T = array2table(rows, 'VariableNames', ...
     {'Target_mm','Rep','ToF_level_mm','ToF_std_mm','ToF_dist_mm','N_frames'});
 T.Ruler_mm = ruler;
 T.Error_mm = T.ToF_level_mm - T.Ruler_mm;
+T.Session  = repmat(string(session), n, 1);
+T.LogFile  = repmat(string(matName), n, 1);
+T = movevars(T, 'Session', 'Before', 1);
 disp(T)
-f = 'all_measurements.csv';
+f = fullfile(logDir, 'all_measurements.csv');
 writetable(T, f, 'WriteMode','append', 'WriteVariableNames', ~isfile(f));
-end
