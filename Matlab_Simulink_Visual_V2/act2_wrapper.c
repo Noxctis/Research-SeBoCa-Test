@@ -11,6 +11,7 @@
 #define PUMP_INA   17
 #define PUMP_INB   27
 #define PUMP_PWM   13   /* hardware PWM1 */
+#define SOL_EN     14   /* M2 enable on the dual VNH5019 - added when the valve channel's own enable line was wired in */
 #define SOL_INA     5
 #define SOL_INB     6
 #define SOL_PWM    12   /* hardware PWM0 */
@@ -35,6 +36,7 @@ static void pump_off(void)
 
 static void valve_off(void)
 {
+    digitalWrite(SOL_EN, LOW);
     digitalWrite(SOL_INA, LOW);
     digitalWrite(SOL_INB, LOW);
     pwmWrite(SOL_PWM, 0);
@@ -71,6 +73,7 @@ int act2_init(void)
     if (wiringPiSetupGpio() == -1) return 1;     /* on failure nothing is ever driven */
     pinMode(PUMP_EN, OUTPUT);  pinMode(PUMP_INA, OUTPUT); pinMode(PUMP_INB, OUTPUT);
     pinMode(PUMP_PWM, PWM_OUTPUT);
+    pinMode(SOL_EN, OUTPUT);
     pinMode(SOL_INA, OUTPUT);  pinMode(SOL_INB, OUTPUT);
     pinMode(SOL_PWM, PWM_OUTPUT);
     pump_off();
@@ -96,6 +99,7 @@ void act2_valve(uint8_t on, uint16_t counts)
     if (!ready) return;
     if (!on || counts == 0) { valve_off(); return; }
     if (counts > VALVE_COUNTS_MAX) counts = VALVE_COUNTS_MAX;
+    digitalWrite(SOL_EN, HIGH);
     digitalWrite(SOL_INA, HIGH);
     digitalWrite(SOL_INB, LOW);
     pwmWrite(SOL_PWM, counts);

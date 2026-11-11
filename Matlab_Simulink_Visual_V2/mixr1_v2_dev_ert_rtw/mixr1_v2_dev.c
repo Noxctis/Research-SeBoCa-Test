@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.29
+ * Model version              : 1.31
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Tue Nov 10 16:13:11 2026
+ * C source code generated on : Wed Nov 11 23:40:37 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -33,7 +33,7 @@ real_T student_band = 5.0;             /* Variable: student_band
 real_T student_mode = 0.0;             /* Variable: student_mode
                                         * Referenced by: '<Root>/mode'
                                         */
-real_T student_sp = 50.0;              /* Variable: student_sp
+real_T student_sp = 100.0;             /* Variable: student_sp
                                         * Referenced by: '<Root>/setpoint'
                                         */
 
@@ -743,10 +743,10 @@ void mixr1_v2_dev_initialize(void)
   rtmSetTFinal(mixr1_v2_dev_M, -1);
 
   /* External mode info */
-  mixr1_v2_dev_M->Sizes.checksums[0] = (3492780991U);
-  mixr1_v2_dev_M->Sizes.checksums[1] = (1628378699U);
-  mixr1_v2_dev_M->Sizes.checksums[2] = (378689306U);
-  mixr1_v2_dev_M->Sizes.checksums[3] = (2547215599U);
+  mixr1_v2_dev_M->Sizes.checksums[0] = (2161475806U);
+  mixr1_v2_dev_M->Sizes.checksums[1] = (1233255918U);
+  mixr1_v2_dev_M->Sizes.checksums[2] = (718024427U);
+  mixr1_v2_dev_M->Sizes.checksums[3] = (3240510202U);
 
   {
     static const sysRanDType rtAlwaysEnabled = SUBSYS_RAN_BC_ENABLE;
