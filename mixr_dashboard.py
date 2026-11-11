@@ -648,18 +648,42 @@ class JumpSlider(QSlider):
     """Slider that jumps to the clicked spot (and keeps dragging from there) and ignores the mouse wheel unless it has focus,
     so scrolling the menu can never change the motor speed by accident."""
 
+    def _pixel_pos_to_value(self, x_pos: int) -> int:
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        style = self.style()
+        if style is None:
+            return self.value()
+        groove = style.subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self)
+        handle = style.subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderHandle, self)
+        span = max(1, groove.width() - handle.width())
+        pos = x_pos - groove.x() - handle.width() // 2
+        return QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), pos, span)
+
     def mousePressEvent(self, ev):
         if ev is not None and ev.button() == Qt.MouseButton.LeftButton and self.isEnabled():
-            opt = QStyleOptionSlider()
-            self.initStyleOption(opt)
-            style = self.style()
-            if style is not None:
-                groove = style.subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self)
-                handle = style.subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderHandle, self)
-                span = max(1, groove.width() - handle.width())
-                pos = int(ev.position().x()) - groove.x() - handle.width() // 2
-                self.setValue(QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), pos, span))
+            ev.accept()
+            self.setSliderDown(True)
+            self.setValue(self._pixel_pos_to_value(int(ev.position().x())))
+            self.repaint()
+            return
         super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if ev is not None and self.isSliderDown() and self.isEnabled():
+            ev.accept()
+            self.setValue(self._pixel_pos_to_value(int(ev.position().x())))
+            return
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        if ev is not None and ev.button() == Qt.MouseButton.LeftButton and self.isSliderDown():
+            ev.accept()
+            self.setSliderDown(False)
+            self.sliderReleased.emit()
+            self.repaint()
+            return
+        super().mouseReleaseEvent(ev)
 
     def wheelEvent(self, e):
         if self.hasFocus():
@@ -1160,6 +1184,7 @@ class ThesisDashboard(QMainWindow):
         self._run_confirmed = False           # impeller check answered "yes" for the current run
         self._motor_cmd_running = False       # the last target sent was > 0
         self._confirm_pending = False         # the impeller question is on screen
+        self._requested_start_rpm = 0         # latest target speed requested while waiting for confirmation
         self._tare_at_start = True            # answer to "tare the torque sensor before this start?" (remembered between starts)
         self._power_limited = False           # the daemon reports its 72 W cap is active
 
@@ -1330,10 +1355,9 @@ class ThesisDashboard(QMainWindow):
         self._target_timer.setSingleShot(True)
         self._target_timer.setInterval(TARGET_SEND_INTERVAL_MS)
         self._target_timer.timeout.connect(lambda: self._send_target(self._pending_target))
-        self.target_slider.valueChanged.connect(self.target_input.setValue)
-        self.target_input.valueChanged.connect(self.target_slider.setValue)
         self.target_slider.valueChanged.connect(self._on_slider_value_changed)
-        self.target_slider.sliderReleased.connect(lambda: self._flush_target())
+        self.target_input.valueChanged.connect(self._on_spinbox_value_changed)
+        self.target_slider.sliderReleased.connect(self._flush_target)
 
         row.addWidget(self.target_slider, stretch=3)
         row.addWidget(self.target_input, stretch=2)
@@ -1512,16 +1536,19 @@ class ThesisDashboard(QMainWindow):
         if self.network_thread.isRunning():
             self.network_thread.send_command(command)
 
+    def _set_target_widgets_quietly(self, rpm: int) -> None:
+        for widget in (self.target_slider, self.target_input):
+            widget.blockSignals(True)
+            widget.setValue(rpm)
+            widget.blockSignals(False)
+        self._update_target_info(rpm)
+
     def _send_target(self, rpm: int) -> None:
         if rpm > 0 and self.link_state is not LinkState.MODE2:
             # Last line of defence: a start is only ever sent while the dashboard really controls the motor (never in MATLAB Mode 3,
             # never while searching), whichever window or dialog asked for it.
             logger.warning("start to %d RPM ignored: not in Mode 2 (%s)", rpm, self.link_state.value)
-            for widget in (self.target_slider, self.target_input):
-                widget.blockSignals(True)
-                widget.setValue(0)
-                widget.blockSignals(False)
-            self._update_target_info(0)
+            self._set_target_widgets_quietly(0)
             return
         if rpm > 0:
             self._motor_cmd_running = True
@@ -1558,31 +1585,62 @@ class ThesisDashboard(QMainWindow):
         self._tare_at_start = tare
         self._send_command(f"CMD:STARTTARE,{1 if tare else 0}\n")
 
-    def _ask_then_start(self, value: int) -> None:
-        self._confirm_pending = False
+    def _ask_then_start(self) -> None:
         if self.link_state is not LinkState.MODE2:
-            return                                                   # MATLAB took over (or the link dropped) before the question
-        if self.confirm_impeller() and self.link_state is LinkState.MODE2:   # ... or while it was on screen
-            self.target_slider.setValue(value)                       # now sent normally
+            self._confirm_pending = False
+            return
+        try:
+            ok = self.confirm_impeller()
+        finally:
+            self._confirm_pending = False
+
+        if ok and self.link_state is not LinkState.MODE2:
+            return
+        if ok:
+            target = self._requested_start_rpm
+            self._set_target_widgets_quietly(target)
+            self._send_target(target)
+        else:
+            self._set_target_widgets_quietly(0)
 
     def _update_target_info(self, value: int) -> None:
         mx = self.current_impeller().max_rpm
         self.target_info_lbl.setText(f"{value} RPM = {100.0 * value / mx:.0f} % of the {mx} RPM maximum")
 
-    def _on_slider_value_changed(self, value: int) -> None:
+    def _intercept_unconfirmed_start(self, value: int) -> bool:
+        """If starting from 0 without confirmation, reset UI to 0, release slider grab, and schedule confirmation once."""
         if value > 0 and not self._motor_cmd_running and not self._run_confirmed:
-            # starting from 0: hold the motor at 0 and ask about the impeller first (after this event, so the slider is released)
+            self._requested_start_rpm = value
             self._target_timer.stop()
-            self.target_slider.setSliderDown(False)
-            for widget in (self.target_slider, self.target_input):
-                widget.blockSignals(True)
-                widget.setValue(0)
-                widget.blockSignals(False)
-            self._update_target_info(0)
+            if self.target_slider.isSliderDown():
+                self.target_slider.setSliderDown(False)
+            self.target_slider.releaseMouse()
+            self._set_target_widgets_quietly(0)
             if not self._confirm_pending:
                 self._confirm_pending = True
-                QTimer.singleShot(0, lambda v=value: self._ask_then_start(v))
+                QTimer.singleShot(0, self._ask_then_start)
+            return True
+        return False
+
+    def _on_spinbox_value_changed(self, value: int) -> None:
+        if self._confirm_pending:
+            self._set_target_widgets_quietly(0)
             return
+        if self._intercept_unconfirmed_start(value):
+            return
+        self._set_target_widgets_quietly(value)
+        self._target_timer.stop()
+        self._send_target(value)
+
+    def _on_slider_value_changed(self, value: int) -> None:
+        if self._confirm_pending:
+            self._set_target_widgets_quietly(0)
+            return
+        if self._intercept_unconfirmed_start(value):
+            return
+        self.target_input.blockSignals(True)
+        self.target_input.setValue(value)
+        self.target_input.blockSignals(False)
         self._update_target_info(value)
         if self.target_slider.isSliderDown():
             self._pending_target = value
@@ -1593,8 +1651,12 @@ class ThesisDashboard(QMainWindow):
             self._send_target(value)
 
     def _flush_target(self) -> None:
+        if self._confirm_pending:
+            return
         self._target_timer.stop()
-        self._send_target(self.target_slider.value())
+        val = self.target_slider.value()
+        if val == 0 or self._run_confirmed or self._motor_cmd_running:
+            self._send_target(val)
 
     def _send_hardware_config(self) -> None:
         """Send the fixed encoder / window settings (256 PPR = 1024 CPR, 20 ms)."""
@@ -1609,7 +1671,7 @@ class ThesisDashboard(QMainWindow):
         """STOP: aborts a running RPM sequence / step test and commands 0 RPM."""
         self._abort_automations("Stopped with the STOP button. Motor stopped.")
         self._target_timer.stop()
-        self.target_slider.setValue(0)
+        self._set_target_widgets_quietly(0)
         self._send_target(0)                            # also sent when the slider was already at 0
 
     def on_daemon_event(self, event: str) -> None:
@@ -1620,7 +1682,7 @@ class ThesisDashboard(QMainWindow):
             self._power_limited = False
             self._abort_automations(f"Safety trip on the Pi ({reason}). Motor stopped.")
             self._target_timer.stop()
-            self.target_slider.setValue(0)                         # the daemon already stopped the motor; keep the slider in step
+            self._set_target_widgets_quietly(0)                    # the daemon already stopped the motor; keep the slider in step
             self._send_target(0)
             if reason == "STALL":
                 text = ("The motor was switched OFF: PWM was on but the shaft was not turning (stall / jammed impeller).\n\n"
@@ -1691,11 +1753,7 @@ class ThesisDashboard(QMainWindow):
             self._abort_automations("MATLAB took control of the rig: stopped. The motor is off.")
             self._target_timer.stop()
             self._confirm_pending = False
-            for widget in (self.target_slider, self.target_input):
-                widget.blockSignals(True)
-                widget.setValue(0)
-                widget.blockSignals(False)
-            self._update_target_info(0)
+            self._set_target_widgets_quietly(0)
             self._send_target(0)                         # also clears _run_confirmed: the next start asks about the impeller again
             self._set_matlab_card(active=True)
             self.switch_page(1)
@@ -1712,7 +1770,7 @@ class ThesisDashboard(QMainWindow):
             # The daemon starts every dashboard session at 0 RPM. Show 0 here as well and never re-send the old slider value, otherwise
             # the motor would restart by itself at the old speed every time the link comes back after a drop.
             self._target_timer.stop()
-            self.target_slider.setValue(0)
+            self._set_target_widgets_quietly(0)
             self._send_target(0)
             self.reset_telemetry()
 
