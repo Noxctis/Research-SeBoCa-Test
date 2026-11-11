@@ -16,14 +16,14 @@ Rule 2: fc(0) and check the pump and valve are off BEFORE clicking Stop.
    - Power the Pi and wait about 1 minute for it to boot.
 
 3. CHECK THE PI (SSH into it)
-     ls /dev/i2c-3                    must exist
-     i2cdetect -y 3                   must show 29 (sensor) and 45 (wattmeter)
+     ls /dev/i2c-1                    must exist
+     i2cdetect -y 1                   must show 29 (sensor) and 45 (wattmeter)
      sudo pkill mixr1_level           exit code 1 only means nothing was running
      pgrep -a -f "mixr1|controller|backend"    only avahi-daemon is OK
      vcgencmd get_throttled           should print 0x0
-   If /dev/i2c-3 is missing: in /boot/firmware/config.txt make sure
-   dtparam=spi=on is OFF and dtoverlay=i2c-gpio,bus=3,... is present, reboot.
-   If 29 is missing: check the sensor wiring (3.3 V, GND, SDA GPIO 8, SCL GPIO 7).
+   If /dev/i2c-1 is missing: in /boot/firmware/config.txt enable I2C (dtparam=i2c_arm=on, or raspi-config > Interface > I2C), then reboot.
+   (the old i2c-gpio overlay on bus 3 is no longer used)
+   If 29 is missing: check the sensor wiring (3.3 V, GND, SDA GPIO 2 = pin 3, SCL GPIO 3 = pin 5).
 
 4. PREPARE MATLAB (Command Window)
      cd 'C:\Users\Cyril Calo\Desktop\Research-SeBoCa-Test\MatLab_Simulink'
@@ -114,7 +114,7 @@ SHUT DOWN
 ===============================================================================
 QUICK TROUBLESHOOTING
 ===============================================================================
-  No /dev/i2c-3 ...... SPI on in config.txt, or overlay line missing; reboot
+  No /dev/i2c-1 ...... I2C not enabled in config.txt; enable it and reboot
   No 29 on the bus ... sensor wiring / power
   state 9 ............ read 'reason'; check status and newData; vcgencmd
                        get_throttled; wiring and capacitors near the 24 V

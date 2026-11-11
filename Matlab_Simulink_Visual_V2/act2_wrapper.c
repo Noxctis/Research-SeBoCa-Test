@@ -7,7 +7,7 @@
 #include <wiringPi.h>
 #include "act2_wrapper.h"
 
-#define PUMP_EN    15
+#define PUMP_EN    18   /* GPIO18 = header pin 12 */
 #define PUMP_INA   17
 #define PUMP_INB   27
 #define PUMP_PWM   13   /* hardware PWM1 */
