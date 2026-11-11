@@ -1652,11 +1652,9 @@ class ThesisDashboard(QMainWindow):
 
     def _flush_target(self) -> None:
         if self._confirm_pending:
-            return
+            return                                                    # a confirmation dialog is in flight for this same release: it sends the target itself
         self._target_timer.stop()
-        val = self.target_slider.value()
-        if val == 0 or self._run_confirmed or self._motor_cmd_running:
-            self._send_target(val)
+        self._send_target(self.target_slider.value())
 
     def _send_hardware_config(self) -> None:
         """Send the fixed encoder / window settings (256 PPR = 1024 CPR, 20 ms)."""
