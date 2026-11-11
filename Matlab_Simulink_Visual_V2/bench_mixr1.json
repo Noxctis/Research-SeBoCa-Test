@@ -1,0 +1,20 @@
+{
+  "bench": "mixr1",
+  "host": "mixr1.local",
+  "tof_offset_mm": -26,
+  "tof_budget_ms": 200,
+  "tof_gain": 1.00901,
+  "tof_intercept": 14.477,
+  "zero_mm": 389,
+  "thickness_mm": 1,
+  "lgain": 1.0,
+  "max_level_mm": 300,
+  "ceiling_margin_mm": 40,
+  "valve_floor_mm": 2,
+  "min_V": 6,
+  "max_V": 12,
+  "min_band_mm": 2,
+  "max_run_s": 1800,
+  "pump_on_counts": 149,
+  "valve_on_counts": 192
+}
