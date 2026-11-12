@@ -138,7 +138,7 @@ FLUID_VISCOSITY = 8.54e-4             # Pa.s, test water
 
 HEARTBEAT_INTERVAL_S = 0.5           # send CMD:HB this often; the daemon drops a dashboard that is silent for 2 s
 LINK_TIMEOUT_S = 2.0                  # no telemetry from the daemon for this long (it streams at 100 Hz) = the link is dead -> reconnect
-POWER_LIMIT_W = 72                    # safety power cap enforced by the daemon on the Pi (config.hpp POWER_LIMIT_W); shown here only
+POWER_LIMIT_W = 90                    # safety power cap enforced by the daemon on the Pi (config.hpp POWER_LIMIT_W); shown here only
 TARGET_SEND_INTERVAL_MS = 100         # while the slider is dragged, at most one command per interval
 TORQUE_AXIS_MIN_MAX_NM = 0.3          # the torque plot shows at least 0 .. 0.3 N.m
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))     # every exported file lands next to this script
@@ -1731,6 +1731,20 @@ class ThesisDashboard(QMainWindow):
     def on_daemon_event(self, event: str) -> None:
         if event.startswith("POWER_LIMIT,"):
             self._power_limited = event.endswith("1")
+        elif event == "KO_STOP":                                   # the KO key on the Pi stopped the motor in Mode 2
+            self._power_limited = False
+            self._abort_automations("Stopped with the KO key on the Pi. Motor stopped.")
+            self._target_timer.stop()
+            self._set_target_widgets_quietly(0)
+            self._send_target(0)
+        elif event.startswith("START_BLOCKED"):                      # the daemon refuses to start: a required sensor did not answer at start-up
+            what = event.split(",", 1)[1].strip() if "," in event else "a sensor"
+            self._abort_automations("Start blocked on the Pi: " + what + ". Motor stopped.")
+            self._target_timer.stop()
+            self._set_target_widgets_quietly(0)
+            self._send_target(0)
+            QMessageBox.warning(self, "Start blocked", "The motor was NOT started: " + what + " did not answer when the daemon started.\n\n"
+                                "Check the wiring, then restart the daemon (or start it with --no-power / --no-torque on purpose).")
         elif event.startswith("POWER_TRIP"):
             reason = event.split(",", 1)[1] if "," in event else "OVERLOAD"
             self._power_limited = False
