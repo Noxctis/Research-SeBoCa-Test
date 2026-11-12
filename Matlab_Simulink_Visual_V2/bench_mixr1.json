@@ -11,10 +11,10 @@
   "max_level_mm": 300,
   "ceiling_margin_mm": 40,
   "valve_floor_mm": 2,
-  "min_V": 6,
+  "min_V": 1,
   "max_V": 12,
   "min_band_mm": 2,
   "max_run_s": 1800,
-  "pump_on_counts": 149,
+  "pump_on_counts": 167,
   "valve_on_counts": 192
 }

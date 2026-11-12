@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.31
+ * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Wed Nov 11 23:40:37 2026
+ * C source code generated on : Thu Nov 12 18:50:48 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -56,20 +56,25 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
    */
   1.0,
 
-  /* Expression: 6
-   * Referenced by: '<Root>/pumpV'
+  /* Computed Parameter: level_displaysmootheddisplayonl
+   * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
    */
-  6.0,
+  -1.0,
+
+  /* Computed Parameter: level_displaysmootheddisplayo_c
+   * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
+   */
+  1.0,
 
   /* Expression: 6
-   * Referenced by: '<Root>/valveV'
+   * Referenced by: '<S1>/valveV'
    */
   6.0,
 
   /* Expression: mixr1_bench.min_V
    * Referenced by: '<S1>/mixr1_bench.min_V'
    */
-  6.0,
+  1.0,
 
   /* Expression: mixr1_bench.max_V
    * Referenced by: '<S1>/mixr1_bench.max_V'
@@ -81,10 +86,10 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
    */
   2.0,
 
-  /* Expression: 20
+  /* Expression: mixr1_bench.valve_floor_mm
    * Referenced by: '<S1>/mixr1_bench.valve_floor_mm'
    */
-  20.0,
+  2.0,
 
   /* Expression: mixr1_bench.max_level_mm
    * Referenced by: '<S1>/mixr1_bench.max_level_mm'
@@ -99,7 +104,7 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
   /* Expression: mixr1_bench.min_V
    * Referenced by: '<S4>/mixr1_bench.min_V'
    */
-  6.0,
+  1.0,
 
   /* Expression: mixr1_bench.max_V
    * Referenced by: '<S4>/mixr1_bench.max_V'
@@ -119,17 +124,17 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
   /* Expression: mixr1_bench.min_V
    * Referenced by: '<S5>/mixr1_bench.min_V'
    */
-  6.0,
+  1.0,
 
   /* Expression: mixr1_bench.max_V
    * Referenced by: '<S5>/mixr1_bench.max_V'
    */
   12.0,
 
-  /* Expression: mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
-   * Referenced by: '<S5>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
+  /* Expression: mixr1_bench.valve_floor_mm
+   * Referenced by: '<S5>/mixr1_bench.valve_floor_mm'
    */
-  260.0,
+  2.0,
 
   /* Expression: mixr1_bench.max_run_s
    * Referenced by: '<S5>/mixr1_bench.max_run_s'
@@ -139,7 +144,7 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
   /* Expression: mixr1_bench.pump_on_counts
    * Referenced by: '<Root>/mixr1_bench.pump_on_counts'
    */
-  149.0,
+  167.0,
 
   /* Expression: mixr1_bench.valve_on_counts
    * Referenced by: '<Root>/mixr1_bench.valve_on_counts'
