@@ -1,0 +1,8 @@
+rows: 42145
+daemon clock span: 421.44 s, expected rows 42145, received 42145 (+0.00 %)
+lost 10 ms periods: 3 in 3 gaps, longest gap 1 periods
+clock restarts (daemon time went backwards): 0
+lines that could not be read during the connection: 0
+revolutions: counted 169, integral of the speed 5077 (+2904.28 %; one turn is within the resolution)
+WARNING: the revolution count does not agree with the speed (index pulses rejected or missed?)
+INTEGRITY: CHECK THE ITEMS ABOVE
