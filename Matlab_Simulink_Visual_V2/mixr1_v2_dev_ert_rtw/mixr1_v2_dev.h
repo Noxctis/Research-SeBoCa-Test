@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.31
+ * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Wed Nov 11 23:40:37 2026
+ * C source code generated on : Thu Nov 12 18:50:48 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -26,6 +26,7 @@
 #include "sysran_types.h"
 #include "rtw_continuous.h"
 #include "rtw_solver.h"
+#include "ext_mode.h"
 #endif                                 /* mixr1_v2_dev_COMMON_INCLUDES_ */
 
 #include "mixr1_v2_dev_types.h"
@@ -34,12 +35,100 @@
 #include <stddef.h>
 
 /* Macros for accessing real-time model data structure */
+#ifndef rtmGetContStateDisabled
+#define rtmGetContStateDisabled(rtm)   ((rtm)->contStateDisabled)
+#endif
+
+#ifndef rtmSetContStateDisabled
+#define rtmSetContStateDisabled(rtm, val) ((rtm)->contStateDisabled = (val))
+#endif
+
+#ifndef rtmGetContStates
+#define rtmGetContStates(rtm)          ((rtm)->contStates)
+#endif
+
+#ifndef rtmSetContStates
+#define rtmSetContStates(rtm, val)     ((rtm)->contStates = (val))
+#endif
+
+#ifndef rtmGetContTimeOutputInconsistentWithStateAtMajorStepFlag
+#define rtmGetContTimeOutputInconsistentWithStateAtMajorStepFlag(rtm) ((rtm)->CTOutputIncnstWithState)
+#endif
+
+#ifndef rtmSetContTimeOutputInconsistentWithStateAtMajorStepFlag
+#define rtmSetContTimeOutputInconsistentWithStateAtMajorStepFlag(rtm, val) ((rtm)->CTOutputIncnstWithState = (val))
+#endif
+
+#ifndef rtmGetDerivCacheNeedsReset
+#define rtmGetDerivCacheNeedsReset(rtm) ((rtm)->derivCacheNeedsReset)
+#endif
+
+#ifndef rtmSetDerivCacheNeedsReset
+#define rtmSetDerivCacheNeedsReset(rtm, val) ((rtm)->derivCacheNeedsReset = (val))
+#endif
+
 #ifndef rtmGetFinalTime
 #define rtmGetFinalTime(rtm)           ((rtm)->Timing.tFinal)
 #endif
 
+#ifndef rtmGetIntgData
+#define rtmGetIntgData(rtm)            ((rtm)->intgData)
+#endif
+
+#ifndef rtmSetIntgData
+#define rtmSetIntgData(rtm, val)       ((rtm)->intgData = (val))
+#endif
+
+#ifndef rtmGetOdeF
+#define rtmGetOdeF(rtm)                ((rtm)->odeF)
+#endif
+
+#ifndef rtmSetOdeF
+#define rtmSetOdeF(rtm, val)           ((rtm)->odeF = (val))
+#endif
+
+#ifndef rtmGetOdeY
+#define rtmGetOdeY(rtm)                ((rtm)->odeY)
+#endif
+
+#ifndef rtmSetOdeY
+#define rtmSetOdeY(rtm, val)           ((rtm)->odeY = (val))
+#endif
+
+#ifndef rtmGetPeriodicContStateIndices
+#define rtmGetPeriodicContStateIndices(rtm) ((rtm)->periodicContStateIndices)
+#endif
+
+#ifndef rtmSetPeriodicContStateIndices
+#define rtmSetPeriodicContStateIndices(rtm, val) ((rtm)->periodicContStateIndices = (val))
+#endif
+
+#ifndef rtmGetPeriodicContStateRanges
+#define rtmGetPeriodicContStateRanges(rtm) ((rtm)->periodicContStateRanges)
+#endif
+
+#ifndef rtmSetPeriodicContStateRanges
+#define rtmSetPeriodicContStateRanges(rtm, val) ((rtm)->periodicContStateRanges = (val))
+#endif
+
 #ifndef rtmGetRTWExtModeInfo
 #define rtmGetRTWExtModeInfo(rtm)      ((rtm)->extModeInfo)
+#endif
+
+#ifndef rtmGetZCCacheNeedsReset
+#define rtmGetZCCacheNeedsReset(rtm)   ((rtm)->zCCacheNeedsReset)
+#endif
+
+#ifndef rtmSetZCCacheNeedsReset
+#define rtmSetZCCacheNeedsReset(rtm, val) ((rtm)->zCCacheNeedsReset = (val))
+#endif
+
+#ifndef rtmGetdX
+#define rtmGetdX(rtm)                  ((rtm)->derivs)
+#endif
+
+#ifndef rtmSetdX
+#define rtmSetdX(rtm, val)             ((rtm)->derivs = (val))
 #endif
 
 #ifndef rtmGetErrorStatus
@@ -62,12 +151,20 @@
 #define rtmGetStopRequestedPtr(rtm)    (&((rtm)->Timing.stopRequestedFlag))
 #endif
 
+#ifndef rtmGetT
+#define rtmGetT(rtm)                   (rtmGetTPtr((rtm))[0])
+#endif
+
 #ifndef rtmGetTFinal
 #define rtmGetTFinal(rtm)              ((rtm)->Timing.tFinal)
 #endif
 
 #ifndef rtmGetTPtr
-#define rtmGetTPtr(rtm)                (&)
+#define rtmGetTPtr(rtm)                ((rtm)->Timing.t)
+#endif
+
+#ifndef rtmGetTStart
+#define rtmGetTStart(rtm)              ((rtm)->Timing.tStart)
 #endif
 
 /* user code (top of header file) */
@@ -75,6 +172,8 @@
 
 /* Block signals (default storage) */
 typedef struct {
+  real_T level_displaysmootheddisplayonl;
+  /* '<Root>/level_display (smoothed, display only — not used for control).' */
   real_T applied_V;                    /* '<S5>/valve_guard' */
   real_T applied_V_d;                  /* '<S4>/pump_guard' */
   real_T level;                        /* '<S2>/level_calc' */
@@ -134,6 +233,35 @@ typedef struct {
   boolean_T armed;                     /* '<S1>/MATLAB Function' */
 } DW_mixr1_v2_dev_T;
 
+/* Continuous states (default storage) */
+typedef struct {
+  real_T level_displaysmootheddisplayonl;
+  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+} X_mixr1_v2_dev_T;
+
+/* State derivatives (default storage) */
+typedef struct {
+  real_T level_displaysmootheddisplayonl;
+  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+} XDot_mixr1_v2_dev_T;
+
+/* State disabled  */
+typedef struct {
+  boolean_T level_displaysmootheddisplayonl;
+  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+} XDis_mixr1_v2_dev_T;
+
+#ifndef ODE3_INTG
+#define ODE3_INTG
+
+/* ODE3 Integration Data */
+typedef struct {
+  real_T *y;                           /* output */
+  real_T *f[3];                        /* derivatives */
+} ODE3_IntgData;
+
+#endif
+
 /* Parameters (default storage) */
 struct P_mixr1_v2_dev_T_ {
   real_T mixr1_benchtof_offset_mm_Value;/* Expression: mixr1_bench.tof_offset_mm
@@ -157,11 +285,16 @@ struct P_mixr1_v2_dev_T_ {
   real_T lgain_Value;                  /* Expression: mixr1_bench.lgain
                                         * Referenced by: '<S2>/lgain'
                                         */
-  real_T pumpV_Value;                  /* Expression: 6
-                                        * Referenced by: '<Root>/pumpV'
-                                        */
+  real_T level_displaysmootheddisplayonl;
+                          /* Computed Parameter: level_displaysmootheddisplayonl
+                           * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
+                           */
+  real_T level_displaysmootheddisplayo_c;
+                          /* Computed Parameter: level_displaysmootheddisplayo_c
+                           * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
+                           */
   real_T valveV_Value;                 /* Expression: 6
-                                        * Referenced by: '<Root>/valveV'
+                                        * Referenced by: '<S1>/valveV'
                                         */
   real_T mixr1_benchmin_V_Value;       /* Expression: mixr1_bench.min_V
                                         * Referenced by: '<S1>/mixr1_bench.min_V'
@@ -172,7 +305,7 @@ struct P_mixr1_v2_dev_T_ {
   real_T mixr1_benchmin_band_mm_Value; /* Expression: mixr1_bench.min_band_mm
                                         * Referenced by: '<S1>/mixr1_bench.min_band_mm'
                                         */
-  real_T mixr1_benchvalve_floor_mm_Value;/* Expression: 20
+  real_T mixr1_benchvalve_floor_mm_Value;/* Expression: mixr1_bench.valve_floor_mm
                                           * Referenced by: '<S1>/mixr1_bench.valve_floor_mm'
                                           */
   real_T mixr1_benchmax_level_mm_Value;/* Expression: mixr1_bench.max_level_mm
@@ -201,10 +334,9 @@ struct P_mixr1_v2_dev_T_ {
   real_T mixr1_benchmax_V_Value_g;     /* Expression: mixr1_bench.max_V
                                         * Referenced by: '<S5>/mixr1_bench.max_V'
                                         */
-  real_T mixr1_benchmax_level_mmmixr1__p;
-         /* Expression: mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
-          * Referenced by: '<S5>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
-          */
+  real_T mixr1_benchvalve_floor_mm_Val_p;/* Expression: mixr1_bench.valve_floor_mm
+                                          * Referenced by: '<S5>/mixr1_bench.valve_floor_mm'
+                                          */
   real_T mixr1_benchmax_run_s_Value_c; /* Expression: mixr1_bench.max_run_s
                                         * Referenced by: '<S5>/mixr1_bench.max_run_s'
                                         */
@@ -221,6 +353,18 @@ struct P_mixr1_v2_dev_T_ {
 struct tag_RTM_mixr1_v2_dev_T {
   const char_T *errorStatus;
   RTWExtModeInfo *extModeInfo;
+  RTWSolverInfo solverInfo;
+  X_mixr1_v2_dev_T *contStates;
+  int_T *periodicContStateIndices;
+  real_T *periodicContStateRanges;
+  real_T *derivs;
+  XDis_mixr1_v2_dev_T *contStateDisabled;
+  boolean_T zCCacheNeedsReset;
+  boolean_T derivCacheNeedsReset;
+  boolean_T CTOutputIncnstWithState;
+  real_T odeY[1];
+  real_T odeF[3][1];
+  ODE3_IntgData intgData;
 
   /*
    * Sizes:
@@ -230,6 +374,9 @@ struct tag_RTM_mixr1_v2_dev_T {
    */
   struct {
     uint32_T checksums[4];
+    int_T numContStates;
+    int_T numPeriodicContStates;
+    int_T numSampTimes;
   } Sizes;
 
   /*
@@ -248,8 +395,14 @@ struct tag_RTM_mixr1_v2_dev_T {
    */
   struct {
     uint32_T clockTick0;
+    time_T stepSize0;
+    uint32_T clockTick1;
+    time_T tStart;
     time_T tFinal;
+    SimTimeStep simTimeStep;
     boolean_T stopRequestedFlag;
+    time_T *t;
+    time_T tArray[2];
   } Timing;
 };
 
@@ -258,6 +411,12 @@ extern P_mixr1_v2_dev_T mixr1_v2_dev_P;
 
 /* Block signals (default storage) */
 extern B_mixr1_v2_dev_T mixr1_v2_dev_B;
+
+/* Continuous states (default storage) */
+extern X_mixr1_v2_dev_T mixr1_v2_dev_X;
+
+/* Disabled states (default storage) */
+extern XDis_mixr1_v2_dev_T mixr1_v2_dev_XDis;
 
 /* Block states (default storage) */
 extern DW_mixr1_v2_dev_T mixr1_v2_dev_DW;
@@ -275,6 +434,9 @@ extern real_T student_band;            /* Variable: student_band
                                         */
 extern real_T student_mode;            /* Variable: student_mode
                                         * Referenced by: '<Root>/mode'
+                                        */
+extern real_T student_pumpV;           /* Variable: student_pumpV
+                                        * Referenced by: '<Root>/pumpV'
                                         */
 extern real_T student_sp;              /* Variable: student_sp
                                         * Referenced by: '<Root>/setpoint'

@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.31
+ * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Wed Nov 11 23:40:37 2026
+ * C source code generated on : Thu Nov 12 18:50:48 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -48,10 +48,9 @@ void *threadJoinStatus;
 int terminatingmodel = 0;
 void *baseRateTask(void *arg)
 {
-  runModel = (rtmGetErrorStatus(mixr1_v2_dev_M) == (NULL));
+  runModel = (rtmGetErrorStatus(mixr1_v2_dev_M) == (NULL)) &&
+    !rtmGetStopRequested(mixr1_v2_dev_M);
   while (runModel) {
-    extmodeSimulationTime_T extmodeTime = (extmodeSimulationTime_T)0;
-    extmodeErrorCode_T extmodeError = EXTMODE_SUCCESS;
     sem_wait(&baserateTaskSem);
 
     /* Run External Mode background activities */
@@ -61,17 +60,11 @@ void *baseRateTask(void *arg)
          may be added here */
     }
 
-    extmodeTime = (extmodeSimulationTime_T)(((mixr1_v2_dev_M->Timing.clockTick0 *
-      1) + 0));
     mixr1_v2_dev_step();
 
     /* Get model outputs here */
-    extmodeError = extmodeEvent((extmodeEventId_T)(0), extmodeTime);
-    if (extmodeError != EXTMODE_SUCCESS) {
-      /* Code to handle external mode event errors may be added here */
-    }
-
-    stopRequested = !((rtmGetErrorStatus(mixr1_v2_dev_M) == (NULL)));
+    stopRequested = !((rtmGetErrorStatus(mixr1_v2_dev_M) == (NULL)) &&
+                      !rtmGetStopRequested(mixr1_v2_dev_M));
     runModel = !stopRequested && !extmodeSimulationComplete() &&
       !extmodeStopRequested();
   }

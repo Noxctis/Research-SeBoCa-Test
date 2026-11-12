@@ -346,18 +346,34 @@ struct {
 } mixr1_v2_dev_P;</code>
 </div>
 </div>
-<div id="fcn_mixr1_v2_dev_P.pumpV_Value">
+<div id="fcn_mixr1_v2_dev_P.level_displaysmootheddisplayonl">
 <h4 class="function">
-mixr1_v2_dev_P.pumpV_Value
+mixr1_v2_dev_P.level_displaysmootheddisplayonl
 </h4>
 <span class="description">
-Parameters for &lt;Root&gt;/pumpV
+Parameters for &lt;Root&gt;/level_display (smoothed, display only — not used for control).
 </span>
 <div class="programlisting">
 <code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
 struct {
   ...
-  real_T pumpV_Value;
+  real_T level_displaysmootheddisplayonl;
+  ...
+} mixr1_v2_dev_P;</code>
+</div>
+</div>
+<div id="fcn_mixr1_v2_dev_P.level_displaysmootheddisplayo_c">
+<h4 class="function">
+mixr1_v2_dev_P.level_displaysmootheddisplayo_c
+</h4>
+<span class="description">
+Parameters for &lt;Root&gt;/level_display (smoothed, display only — not used for control).
+</span>
+<div class="programlisting">
+<code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
+struct {
+  ...
+  real_T level_displaysmootheddisplayo_c;
   ...
 } mixr1_v2_dev_P;</code>
 </div>
@@ -367,7 +383,7 @@ struct {
 mixr1_v2_dev_P.valveV_Value
 </h4>
 <span class="description">
-Parameters for &lt;Root&gt;/valveV
+Parameters for &lt;S1&gt;/valveV
 </span>
 <div class="programlisting">
 <code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
@@ -570,18 +586,18 @@ struct {
 } mixr1_v2_dev_P;</code>
 </div>
 </div>
-<div id="fcn_mixr1_v2_dev_P.mixr1_benchmax_level_mmmixr1__p">
+<div id="fcn_mixr1_v2_dev_P.mixr1_benchvalve_floor_mm_Val_p">
 <h4 class="function">
-mixr1_v2_dev_P.mixr1_benchmax_level_mmmixr1__p
+mixr1_v2_dev_P.mixr1_benchvalve_floor_mm_Val_p
 </h4>
 <span class="description">
-Parameters for &lt;S5&gt;/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
+Parameters for &lt;S5&gt;/mixr1_bench.valve_floor_mm
 </span>
 <div class="programlisting">
 <code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
 struct {
   ...
-  real_T mixr1_benchmax_level_mmmixr1__p;
+  real_T mixr1_benchvalve_floor_mm_Val_p;
   ...
 } mixr1_v2_dev_P;</code>
 </div>
@@ -656,6 +672,18 @@ Parameters for student_mode
 <div class="programlisting">
 <code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
 extern real_T student_mode;</code>
+</div>
+</div>
+<div id="fcn_student_pumpV">
+<h4 class="function">
+student_pumpV
+</h4>
+<span class="description">
+Parameters for student_pumpV
+</span>
+<div class="programlisting">
+<code class="usage"><span class="include">#include "<a href="javascript: void(0)" onclick="postParentWindowMessage({message:'jumpToCode',location:'mixr1_v2_dev.h'})" class="include">mixr1_v2_dev.h</a>"</span>
+extern real_T student_pumpV;</code>
 </div>
 </div>
 <div id="fcn_student_sp">

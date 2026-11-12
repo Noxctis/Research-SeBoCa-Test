@@ -21,7 +21,7 @@
    6 V and 12 V at the driver with a multimeter. The counts-to-volts relation has NOT been measured
    with an oscilloscope, so nothing above these may be driven.
    Raise them only after measuring the driver output. They apply whatever the model asks for. */
-#define PUMP_COUNTS_MAX   149
+#define PUMP_COUNTS_MAX   167   /* raised from 149 so pumpV can reach 12 V on the multimeter; 149-167 is extrapolated, not scope-checked */
 #define VALVE_COUNTS_MAX  192
 
 static int ready = 0;
