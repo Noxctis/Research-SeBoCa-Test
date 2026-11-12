@@ -393,8 +393,10 @@ def integrity_report(data: np.ndarray, malformed: int = 0) -> Tuple[List[str], b
         counted = float(rev[good][-1] - rev[good][0]); integral = float(np.sum(filt[good]) * SAMPLE_PERIOD_S / 60.0)
         if integral > 1.0:
             diff = 100.0 * (integral / max(counted, 1e-9) - 1.0) if counted > 0 else float("inf")
-            lines.append(f"revolutions: counted {counted:.0f}, integral of the speed {integral:.0f} ({diff:+.2f} %)")
-            if abs(diff) > 2.0:
+            lines.append(f"revolutions: counted {counted:.0f}, integral of the speed {integral:.0f} ({diff:+.2f} %; one turn is within the resolution)")
+            # The index pulse counts whole turns and the run starts and ends at an arbitrary shaft angle: one turn of difference is within the
+            # resolution of the check (7 % of a 14-turn log), so the percentage only counts above that.
+            if abs(integral - counted) > max(1.5, 0.02 * counted):
                 ok = False
                 lines.append("WARNING: the revolution count does not agree with the speed (index pulses rejected or missed?)")
     lines.append("INTEGRITY: OK" if ok else "INTEGRITY: CHECK THE ITEMS ABOVE")
