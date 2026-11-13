@@ -390,7 +390,8 @@ def integrity_report(data: np.ndarray, malformed: int = 0) -> Tuple[List[str], b
     rev = data[:, IDX["revolutions"]]; filt = data[:, IDX["filt_rpm"]]
     good = np.isfinite(rev) & np.isfinite(filt)
     if good.sum() > 100:
-        counted = float(rev[good][-1] - rev[good][0]); integral = float(np.sum(filt[good]) * SAMPLE_PERIOD_S / 60.0)
+        rg = rev[good]; fg = filt[good]; drops = np.where(np.diff(rg) < -0.5)[0]; i0 = int(drops[-1] + 1) if len(drops) else 0      # the daemon zeroes the count at the start: count from the row after that
+        counted = float(rg[-1] - rg[i0]); integral = float(np.sum(fg[i0:]) * SAMPLE_PERIOD_S / 60.0)
         if integral > 1.0:
             diff = 100.0 * (integral / max(counted, 1e-9) - 1.0) if counted > 0 else float("inf")
             lines.append(f"revolutions: counted {counted:.0f}, integral of the speed {integral:.0f} ({diff:+.2f} %; one turn is within the resolution)")
