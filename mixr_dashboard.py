@@ -133,8 +133,8 @@ NPO_STEADY_WINDOW_S = 1.0             # open loop (no target): the speed must ha
 NPO_MAX_RPM_STD_FRAC = 0.03           # ... filtered RPM spread max 3 % of the mean
 NPO_PWM_STEADY_PCT = 0.5              # ... on a PWM unchanged within 0.5 %
 POWER_AXIS_HEADROOM = 1.15            # power plot: top of the axis 15 % above the highest value (the legend is above the plot)
-FLUID_DENSITY = 996.3                 # kg/m3, test water
-FLUID_VISCOSITY = 8.54e-4             # Pa.s, test water
+FLUID_DENSITY = 997.3                 # kg/m3, test water at 24 degrees C
+FLUID_VISCOSITY = 9.11e-4             # Pa.s, test water at 24 degrees C
 
 HEARTBEAT_INTERVAL_S = 0.5           # send CMD:HB this often; the daemon drops a dashboard that is silent for 2 s
 LINK_TIMEOUT_S = 2.0                  # no telemetry from the daemon for this long (it streams at 100 Hz) = the link is dead -> reconnect
@@ -1615,6 +1615,13 @@ class ThesisDashboard(QMainWindow):
                 self._run_confirmed = False                       # stopped: the next start asks again
         self._send_command(f"CMD:RPM,{rpm}\n")
 
+    def _automation_target(self, rpm: int) -> None:
+        """Target set by the automated step test: show it on the slider and the number box (without triggering their handlers, so the
+        confirmation question and the rate of sending are not involved) and send it to the daemon. The two widgets are disabled
+        while the test runs, so they only display the step."""
+        self._set_target_widgets_quietly(rpm)
+        self._send_target(rpm)
+
     def confirm_impeller(self, parent: Optional[QWidget] = None) -> bool:
         """Safety question before the motor starts from 0: is the selected impeller really the one on the shaft?"""
         imp = self.current_impeller()
@@ -1787,9 +1794,10 @@ class ThesisDashboard(QMainWindow):
             if self.step_win is not None:
                 self.step_win.close()
             win = StepTestWindow(max_rpm, self)
-            win.target_requested.connect(self.target_slider.setValue)
+            win.target_requested.connect(self._automation_target)       # the slider and the box follow the step (read-only, they are disabled) and the command goes out
             win.started.connect(self.reset_telemetry)
             win.started.connect(lambda: self.set_manual_controls_enabled(False))
+            win.finished.connect(lambda: self._set_target_widgets_quietly(0))   # the test ends at 0 RPM: show it on the slider and the box
             win.finished.connect(lambda: self.set_manual_controls_enabled(True))
             self.step_win = win
         self._show_window(self.step_win)
@@ -2063,7 +2071,7 @@ class ThesisDashboard(QMainWindow):
 # N_Re = rho*n*D^2/mu and N_Po = 2*pi*n*torque/(rho*n^3*D^5) with n = rpm/60 (same formulas as the live calculation).
 CFD_REFERENCE: Dict[str, Dict[str, Any]] = {
     "96mm": {          # D = 0.0665 m
-        "rho": 996.3, "mu": 0.000854,
+        "rho": 997.3, "mu": 0.000911,
         "rpm": [
             0.011629892, 0.023259785, 0.034889677, 0.04651957, 0.058149462, 0.069779355, 0.081409247,
             0.09303914, 0.104669032, 0.116298925, 0.23259785, 0.348896775, 0.4651957, 0.581494625,
@@ -2086,7 +2094,7 @@ CFD_REFERENCE: Dict[str, Dict[str, Any]] = {
         ],
     },
     "174mm": {          # D = 0.1207 m
-        "rho": 996.3, "mu": 0.000854,
+        "rho": 997.3, "mu": 0.000911,
         "rpm": [
             0.0035, 0.0071, 0.0106, 0.0141, 0.0177, 0.0212, 0.0247,
             0.0282, 0.0318, 0.0353, 0.0706, 0.1059, 0.1412, 0.1765,

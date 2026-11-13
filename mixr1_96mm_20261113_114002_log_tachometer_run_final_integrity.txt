@@ -1,0 +1,7 @@
+rows: 13946
+daemon clock span: 139.45 s, expected rows 13946, received 13946 (+0.00 %)
+lost 10 ms periods: 0 in 0 gaps, longest gap 0 periods
+clock restarts (daemon time went backwards): 0
+lines that could not be read during the connection: 0
+revolutions: counted 1282, integral of the speed 1282 (-0.02 %; one turn is within the resolution)
+INTEGRITY: OK
