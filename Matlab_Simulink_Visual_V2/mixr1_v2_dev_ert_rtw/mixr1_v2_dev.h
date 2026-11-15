@@ -9,7 +9,7 @@
  *
  * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Thu Nov 12 18:50:48 2026
+ * C source code generated on : Sat Nov 14 23:01:16 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -293,8 +293,11 @@ struct P_mixr1_v2_dev_T_ {
                           /* Computed Parameter: level_displaysmootheddisplayo_c
                            * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
                            */
+  real_T pumpV_Value;                  /* Expression: 12
+                                        * Referenced by: '<Root>/pumpV'
+                                        */
   real_T valveV_Value;                 /* Expression: 6
-                                        * Referenced by: '<S1>/valveV'
+                                        * Referenced by: '<Root>/valveV'
                                         */
   real_T mixr1_benchmin_V_Value;       /* Expression: mixr1_bench.min_V
                                         * Referenced by: '<S1>/mixr1_bench.min_V'
@@ -434,9 +437,6 @@ extern real_T student_band;            /* Variable: student_band
                                         */
 extern real_T student_mode;            /* Variable: student_mode
                                         * Referenced by: '<Root>/mode'
-                                        */
-extern real_T student_pumpV;           /* Variable: student_pumpV
-                                        * Referenced by: '<Root>/pumpV'
                                         */
 extern real_T student_sp;              /* Variable: student_sp
                                         * Referenced by: '<Root>/setpoint'

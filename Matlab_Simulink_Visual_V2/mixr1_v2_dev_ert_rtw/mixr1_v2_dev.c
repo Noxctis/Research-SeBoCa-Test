@@ -9,7 +9,7 @@
  *
  * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Thu Nov 12 18:50:48 2026
+ * C source code generated on : Sat Nov 14 23:01:16 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -27,14 +27,11 @@
 #include <math.h>
 
 /* Exported block parameters */
-real_T student_band = 6.5942858014787946;/* Variable: student_band
-                                          * Referenced by: '<Root>/band'
-                                          */
+real_T student_band = 5.0;             /* Variable: student_band
+                                        * Referenced by: '<Root>/band'
+                                        */
 real_T student_mode = 0.0;             /* Variable: student_mode
                                         * Referenced by: '<Root>/mode'
-                                        */
-real_T student_pumpV = 9.0;            /* Variable: student_pumpV
-                                        * Referenced by: '<Root>/pumpV'
                                         */
 real_T student_sp = 100.0;             /* Variable: student_sp
                                         * Referenced by: '<Root>/setpoint'
@@ -169,13 +166,6 @@ void mixr1_v2_dev_step(void)
   boolean_T active;
   boolean_T sees;
   boolean_T wanted;
-  static const real_T b[14] = { 0.0, 1.92, 3.2, 4.1, 4.9, 5.7, 6.5, 7.2, 7.9,
-    8.7, 9.4, 10.2, 10.9, 12.0 };
-
-  static const uint8_T c[14] = { 0U, 12U, 25U, 37U, 50U, 62U, 75U, 87U, 99U,
-    112U, 124U, 137U, 149U, 167U };
-
-  boolean_T exitg1;
   if (rtmIsMajorTimeStep(mixr1_v2_dev_M)) {
     /* set solver stop time */
     rtsiSetSolverStopTime(&mixr1_v2_dev_M->solverInfo,
@@ -301,9 +291,9 @@ void mixr1_v2_dev_step(void)
           break;
 
          case 2:
-          d = mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n) - 1];
-          d += (mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n)] - d) /
-            2.0;
+          trip = mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n) - 1];
+          d = (mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n)] - trip) /
+            2.0 + trip;
           break;
 
          default:
@@ -381,13 +371,13 @@ void mixr1_v2_dev_step(void)
      *  Constant: '<Root>/mode'
      *  Constant: '<Root>/pumpV'
      *  Constant: '<Root>/setpoint'
+     *  Constant: '<Root>/valveV'
      *  Constant: '<S1>/mixr1_bench.ceiling_margin_mm'
      *  Constant: '<S1>/mixr1_bench.max_V'
      *  Constant: '<S1>/mixr1_bench.max_level_mm'
      *  Constant: '<S1>/mixr1_bench.min_V'
      *  Constant: '<S1>/mixr1_bench.min_band_mm'
      *  Constant: '<S1>/mixr1_bench.valve_floor_mm'
-     *  Constant: '<S1>/valveV'
      */
     /* MATLAB Function 'Controller/MATLAB Function': '<S6>:1' */
     /* '<S6>:1:17' if isempty(sw) */
@@ -439,8 +429,9 @@ void mixr1_v2_dev_step(void)
 
     /* '<S6>:1:24' pump_V    = min(max(pumpV,  min_V), max_V); */
     active = rtIsNaN(mixr1_v2_dev_P.mixr1_benchmin_V_Value);
-    if ((student_pumpV >= mixr1_v2_dev_P.mixr1_benchmin_V_Value) || active) {
-      sp1 = student_pumpV;
+    if ((mixr1_v2_dev_P.pumpV_Value >= mixr1_v2_dev_P.mixr1_benchmin_V_Value) ||
+        active) {
+      sp1 = mixr1_v2_dev_P.pumpV_Value;
     } else {
       sp1 = mixr1_v2_dev_P.mixr1_benchmin_V_Value;
     }
@@ -810,45 +801,28 @@ void mixr1_v2_dev_step(void)
       mixr1_v2_dev_DW.started = true;
     }
 
-    /* '<S3>:1:26' CAL_V = [0 1.92 3.2 4.1 4.9 5.7 6.5 7.2 7.9 8.7 9.4 10.2 10.9 12.0]; */
-    /* '<S3>:1:27' CAL_C = [0 12 25 37 50 62 75 87 99 112 124 137 149 167]; */
-    /* '<S3>:1:28' t  = double(pump_V); */
-    /* '<S3>:1:29' pc = CAL_C(end); */
-    d = 167.0;
-
-    /* '<S3>:1:30' if t < CAL_V(end) */
-    if (mixr1_v2_dev_B.applied_V_d < 12.0) {
-      /* '<S3>:1:31' for k = 2:numel(CAL_V) */
-      j2 = 0;
-      exitg1 = false;
-      while (!exitg1 && (j2 < 13)) {
-        /* '<S3>:1:32' if t <= CAL_V(k) */
-        trip = b[j2 + 1];
-        if (mixr1_v2_dev_B.applied_V_d <= trip) {
-          /* '<S3>:1:33' pc = CAL_C(k-1) + (CAL_C(k) - CAL_C(k-1)) * (t - CAL_V(k-1)) / (CAL_V(k) - CAL_V(k-1)); */
-          d = (real_T)(c[j2 + 1] - c[j2]) * (mixr1_v2_dev_B.applied_V_d - b[j2])
-            / (trip - b[j2]) + (real_T)c[j2];
-          exitg1 = true;
-        } else {
-          j2++;
-        }
-      }
+    /* '<S3>:1:24' V_REF = 12; */
+    /* '<S3>:1:25' pc = double(pump_counts) * min(max(double(pump_V), 0), V_REF) / V_REF; */
+    if (mixr1_v2_dev_B.applied_V_d >= 0.0) {
+      d = mixr1_v2_dev_B.applied_V_d;
+    } else {
+      d = 0.0;
     }
 
-    /* '<S3>:1:38' pc = min(pc, double(pump_counts)); */
-    if (!(d <= mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value) && !rtIsNaN
-        (mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value)) {
-      d = mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value;
+    if (!(d <= 12.0)) {
+      d = 12.0;
     }
 
-    /* '<S3>:1:39' if pump_V > 0 */
+    d = mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value * d / 12.0;
+
+    /* '<S3>:1:26' if pump_V > 0 */
     if ((mixr1_v2_dev_B.applied_V_d > 0.0) && !(d >= 1.0)) {
-      /* '<S3>:1:39' , */
-      /* '<S3>:1:39' pc = max(pc, 1); */
+      /* '<S3>:1:26' , */
+      /* '<S3>:1:26' pc = max(pc, 1); */
       d = 1.0;
     }
 
-    /* '<S3>:1:40' coder.ceval('act2_pump',  uint8(pump_V  > 0), uint16(round(pc))); */
+    /* '<S3>:1:27' coder.ceval('act2_pump',  uint8(pump_V  > 0), uint16(round(pc))); */
     trip = rt_roundd_snf(d);
     if (trip < 65536.0) {
       if (trip >= 0.0) {
@@ -862,7 +836,7 @@ void mixr1_v2_dev_step(void)
 
     act2_pump((uint8_T)(mixr1_v2_dev_B.applied_V_d > 0.0), tmp_0);
 
-    /* '<S3>:1:41' coder.ceval('act2_valve', uint8(valve_V > 0), uint16(valve_counts)); */
+    /* '<S3>:1:28' coder.ceval('act2_valve', uint8(valve_V > 0), uint16(valve_counts)); */
     trip = rt_roundd_snf(mixr1_v2_dev_P.mixr1_benchvalve_on_counts_Valu);
     if (trip < 65536.0) {
       if (trip >= 0.0) {
@@ -988,10 +962,10 @@ void mixr1_v2_dev_initialize(void)
   mixr1_v2_dev_M->Timing.stepSize0 = 0.05;
 
   /* External mode info */
-  mixr1_v2_dev_M->Sizes.checksums[0] = (215515721U);
-  mixr1_v2_dev_M->Sizes.checksums[1] = (598678343U);
-  mixr1_v2_dev_M->Sizes.checksums[2] = (259596422U);
-  mixr1_v2_dev_M->Sizes.checksums[3] = (3008393499U);
+  mixr1_v2_dev_M->Sizes.checksums[0] = (111657708U);
+  mixr1_v2_dev_M->Sizes.checksums[1] = (1656182479U);
+  mixr1_v2_dev_M->Sizes.checksums[2] = (296042422U);
+  mixr1_v2_dev_M->Sizes.checksums[3] = (1070193155U);
 
   {
     static const sysRanDType rtAlwaysEnabled = SUBSYS_RAN_BC_ENABLE;

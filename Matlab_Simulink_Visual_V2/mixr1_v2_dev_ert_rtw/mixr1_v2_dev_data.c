@@ -9,7 +9,7 @@
  *
  * Model version              : 1.35
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Thu Nov 12 18:50:48 2026
+ * C source code generated on : Sat Nov 14 23:01:16 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -66,8 +66,13 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
    */
   1.0,
 
+  /* Expression: 12
+   * Referenced by: '<Root>/pumpV'
+   */
+  12.0,
+
   /* Expression: 6
-   * Referenced by: '<S1>/valveV'
+   * Referenced by: '<Root>/valveV'
    */
   6.0,
 
