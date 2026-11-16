@@ -19,9 +19,8 @@ if ~coder.target('Sfun')
         coder.ceval('act2_init');
         started = true;
     end
-    % Pump: pump_V is the target in volts as read by a multimeter at the pump terminals. Bench calibration
-    % (24 V supply, counts = 149*s/12 for s = 1..12) measured: below. Counts are interpolated from it
-    % and never exceed pump_counts, so a target above the last point (10.9 V) just gives full drive.
+    % Pump: pump_V is the target in volts as read by a multimeter at the pump terminals. The table below is the
+    % bench calibration (24 V supply). Counts are interpolated from it and never exceed pump_counts.
     % The last point (167 counts, 12.0 V) is extrapolated from the trend, NOT measured: check it with the meter.
     CAL_V = [0 1.92 3.2 4.1 4.9 5.7 6.5 7.2 7.9 8.7 9.4 10.2 10.9 12.0];
     CAL_C = [0 12 25 37 50 62 75 87 99 112 124 137 149 167];
