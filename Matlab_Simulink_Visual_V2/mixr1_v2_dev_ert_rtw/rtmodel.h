@@ -4,7 +4,7 @@
  * Code generation for Simulink model "mixr1_v2_dev".
  *
  * Simulink Coder version                : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Sat Nov 14 23:01:16 2026
+ * C source code generated on : Tue Nov 17 03:22:17 2026
  *
  * Note that the generated code is not dependent on this header file.
  * The file is used in cojuction with the automatic build procedure.
