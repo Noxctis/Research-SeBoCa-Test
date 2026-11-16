@@ -1601,6 +1601,13 @@ class ThesisDashboard(QMainWindow):
         self._update_target_info(rpm)
 
     def _send_target(self, rpm: int) -> None:
+        # The start gate: from stopped, no speed above 0 is ever sent until the impeller / tare question has been answered Yes. This holds for
+        # every caller (slider, box, drag release, flush), so the motor cannot start while the question is open or was never asked.
+        if rpm > 0 and not self._motor_cmd_running and not self._run_confirmed:
+            self._intercept_unconfirmed_start(rpm)
+            return
+        if rpm > 0 and self._confirm_pending:
+            return
         if rpm > 0 and self.link_state is not LinkState.MODE2:
             # Last line of defence: a start is only ever sent while the dashboard really controls the motor (never in MATLAB Mode 3,
             # never while searching), whichever window or dialog asked for it.
