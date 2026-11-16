@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.35
+ * Model version              : 1.49
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Sat Nov 14 23:01:16 2026
+ * C source code generated on : Tue Nov 17 03:22:17 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -20,21 +20,24 @@
 #include "mixr1_v2_dev.h"
 #include "tof_wrapper.h"
 #include "act2_wrapper.h"
-#include "rt_nonfinite.h"
 #include "mixr1_v2_dev_private.h"
+#include "rt_nonfinite.h"
 #include "rtwtypes.h"
 #include <string.h>
 #include <math.h>
 
 /* Exported block parameters */
-real_T student_band = 5.0;             /* Variable: student_band
-                                        * Referenced by: '<Root>/band'
+real_T student_band = 6.9365079365079367;/* Variable: student_band
+                                          * Referenced by: '<S2>/band'
+                                          */
+real_T student_mode = 2.0;             /* Variable: student_mode
+                                        * Referenced by: '<S2>/mode'
                                         */
-real_T student_mode = 0.0;             /* Variable: student_mode
-                                        * Referenced by: '<Root>/mode'
-                                        */
-real_T student_sp = 100.0;             /* Variable: student_sp
-                                        * Referenced by: '<Root>/setpoint'
+real_T student_pumpV = 6.8264290945870538;/* Variable: student_pumpV
+                                           * Referenced by: '<S2>/pumpV'
+                                           */
+real_T student_sp = 99.809524293929812;/* Variable: student_sp
+                                        * Referenced by: '<S2>/setpoint'
                                         */
 
 /* Block signals (default storage) */
@@ -160,12 +163,20 @@ void mixr1_v2_dev_step(void)
   real_T trip;
   real_T valve_V;
   int32_T j2;
-  int16_T tmp;
-  uint16_T tmp_0;
+  int16_T tmp_0;
+  uint16_T tmp_1;
   uint8_T guard;
   boolean_T active;
   boolean_T sees;
+  boolean_T tmp;
   boolean_T wanted;
+  static const real_T b[14] = { 0.0, 1.92, 3.2, 4.1, 4.9, 5.7, 6.5, 7.2, 7.9,
+    8.7, 9.4, 10.2, 10.9, 12.0 };
+
+  static const uint8_T c[14] = { 0U, 12U, 25U, 37U, 50U, 62U, 75U, 87U, 99U,
+    112U, 124U, 137U, 149U, 167U };
+
+  boolean_T exitg1;
   if (rtmIsMajorTimeStep(mixr1_v2_dev_M)) {
     /* set solver stop time */
     rtsiSetSolverStopTime(&mixr1_v2_dev_M->solverInfo,
@@ -178,122 +189,131 @@ void mixr1_v2_dev_step(void)
     mixr1_v2_dev_M->Timing.t[0] = rtsiGetT(&mixr1_v2_dev_M->solverInfo);
   }
 
-  wanted = rtmIsMajorTimeStep(mixr1_v2_dev_M);
-  if (wanted) {
-    /* MATLAB Function: '<S2>/tof_read' incorporates:
-     *  Constant: '<S2>/mixr1_bench.tof_budget_ms'
-     *  Constant: '<S2>/mixr1_bench.tof_offset_mm'
+  tmp = rtmIsMajorTimeStep(mixr1_v2_dev_M);
+  if (tmp) {
+    /* Constant: '<S2>/setpoint' */
+    mixr1_v2_dev_B.setpoint = student_sp;
+
+    /* Constant: '<S2>/band' */
+    mixr1_v2_dev_B.band = student_band;
+
+    /* Constant: '<S2>/pumpV' */
+    mixr1_v2_dev_B.pumpV = student_pumpV;
+
+    /* MATLAB Function: '<S3>/tof_read' incorporates:
+     *  Constant: '<S3>/mixr1_bench.tof_budget_ms'
+     *  Constant: '<S3>/mixr1_bench.tof_offset_mm'
      */
-    /* MATLAB Function 'Level Sensor/tof_read': '<S8>:1' */
-    /* '<S8>:1:4' coder.extrinsic('which', 'fileparts'); */
-    /* '<S8>:1:5' dist    = uint16(0); */
-    /* '<S8>:1:6' status  = uint8(255); */
-    /* '<S8>:1:7' newData = uint8(0); */
-    /* '<S8>:1:10' if isempty(k) */
-    /* '<S8>:1:17' if coder.target('Sfun') */
-    /* '<S8>:1:32' else */
-    /* '<S8>:1:33' srcDir = coder.const(fileparts(which('tof_wrapper.c'))); */
-    /* '<S8>:1:34' coder.cinclude('tof_wrapper.h'); */
-    /* '<S8>:1:35' coder.updateBuildInfo('addIncludePaths', srcDir); */
-    /* '<S8>:1:36' coder.updateBuildInfo('addSourcePaths',  srcDir); */
-    /* '<S8>:1:37' coder.updateBuildInfo('addSourceFiles', 'tof_wrapper.c'); */
-    /* '<S8>:1:38' coder.updateBuildInfo('addSourceFiles', 'VL53L4CD_api.c'); */
-    /* '<S8>:1:39' coder.updateBuildInfo('addSourceFiles', 'platform.c'); */
-    /* '<S8>:1:41' if ~started */
-    if (!mixr1_v2_dev_DW.started_d) {
-      /* '<S8>:1:42' coder.ceval('tof_init', int16(offset_mm), uint16(budget_ms)); */
+    /* MATLAB Function 'TOF Read/tof_read': '<S12>:1' */
+    /* '<S12>:1:4' coder.extrinsic('which', 'fileparts'); */
+    /* '<S12>:1:5' dist    = uint16(0); */
+    /* '<S12>:1:6' status  = uint8(255); */
+    /* '<S12>:1:7' newData = uint8(0); */
+    /* '<S12>:1:10' if isempty(k) */
+    /* '<S12>:1:17' if coder.target('Sfun') */
+    /* '<S12>:1:32' else */
+    /* '<S12>:1:33' srcDir = coder.const(fileparts(which('tof_wrapper.c'))); */
+    /* '<S12>:1:34' coder.cinclude('tof_wrapper.h'); */
+    /* '<S12>:1:35' coder.updateBuildInfo('addIncludePaths', srcDir); */
+    /* '<S12>:1:36' coder.updateBuildInfo('addSourcePaths',  srcDir); */
+    /* '<S12>:1:37' coder.updateBuildInfo('addSourceFiles', 'tof_wrapper.c'); */
+    /* '<S12>:1:38' coder.updateBuildInfo('addSourceFiles', 'VL53L4CD_api.c'); */
+    /* '<S12>:1:39' coder.updateBuildInfo('addSourceFiles', 'platform.c'); */
+    /* '<S12>:1:41' if ~started */
+    if (!mixr1_v2_dev_DW.started) {
+      /* '<S12>:1:42' coder.ceval('tof_init', int16(offset_mm), uint16(budget_ms)); */
       trip = rt_roundd_snf(mixr1_v2_dev_P.mixr1_benchtof_offset_mm_Value);
       d = rt_roundd_snf(mixr1_v2_dev_P.mixr1_benchtof_budget_ms_Value);
       if (trip < 32768.0) {
         if (trip >= -32768.0) {
-          tmp = (int16_T)trip;
+          tmp_0 = (int16_T)trip;
         } else {
-          tmp = MIN_int16_T;
+          tmp_0 = MIN_int16_T;
         }
       } else {
-        tmp = MAX_int16_T;
+        tmp_0 = MAX_int16_T;
       }
 
       if (d < 65536.0) {
         if (d >= 0.0) {
-          tmp_0 = (uint16_T)d;
+          tmp_1 = (uint16_T)d;
         } else {
-          tmp_0 = 0U;
+          tmp_1 = 0U;
         }
       } else {
-        tmp_0 = MAX_uint16_T;
+        tmp_1 = MAX_uint16_T;
       }
 
-      tof_init(tmp, tmp_0);
+      tof_init(tmp_0, tmp_1);
 
-      /* '<S8>:1:43' started = true; */
-      mixr1_v2_dev_DW.started_d = true;
+      /* '<S12>:1:43' started = true; */
+      mixr1_v2_dev_DW.started = true;
     }
 
-    /* '<S8>:1:45' coder.ceval('tof_step', coder.wref(dist), coder.wref(status), coder.wref(newData)); */
+    /* '<S12>:1:45' coder.ceval('tof_step', coder.wref(dist), coder.wref(status), coder.wref(newData)); */
     tof_step(&mixr1_v2_dev_B.dist, &mixr1_v2_dev_B.status,
              &mixr1_v2_dev_B.newData);
 
-    /* End of MATLAB Function: '<S2>/tof_read' */
+    /* End of MATLAB Function: '<S3>/tof_read' */
 
-    /* MATLAB Function: '<S2>/level_calc' incorporates:
-     *  Constant: '<S2>/gain'
-     *  Constant: '<S2>/intercept'
-     *  Constant: '<S2>/lgain'
-     *  Constant: '<S2>/thickness'
-     *  Constant: '<S2>/zero'
+    /* MATLAB Function: '<S3>/level_calc' incorporates:
+     *  Constant: '<S3>/gain'
+     *  Constant: '<S3>/intercept'
+     *  Constant: '<S3>/lgain'
+     *  Constant: '<S3>/thickness'
+     *  Constant: '<S3>/zero'
      */
-    /* MATLAB Function 'Level Sensor/level_calc': '<S7>:1' */
-    /* '<S7>:1:8' MAX_AGE = 12; */
-    /* '<S7>:1:11' if isempty(buf) */
-    /* '<S7>:1:16' newOut = (newData == 1); */
+    /* MATLAB Function 'TOF Read/level_calc': '<S11>:1' */
+    /* '<S11>:1:8' MAX_AGE = 12; */
+    /* '<S11>:1:11' if isempty(buf) */
+    /* '<S11>:1:16' newOut = (newData == 1); */
     mixr1_v2_dev_B.newOut = (mixr1_v2_dev_B.newData == 1);
 
-    /* '<S7>:1:17' if newData == 1 */
+    /* '<S11>:1:17' if newData == 1 */
     if (mixr1_v2_dev_B.newData == 1) {
-      /* '<S7>:1:18' d = (double(dist) - intercept) / gain; */
+      /* '<S11>:1:18' d = (double(dist) - intercept) / gain; */
       d = ((real_T)mixr1_v2_dev_B.dist - mixr1_v2_dev_P.intercept_Value) /
         mixr1_v2_dev_P.gain_Value;
 
-      /* '<S7>:1:19' if status == 0 && d > 30 && d <= 2000 */
+      /* '<S11>:1:19' if status == 0 && d > 30 && d <= 2000 */
       if ((mixr1_v2_dev_B.status == 0) && (d > 30.0) && (d <= 2000.0)) {
-        /* '<S7>:1:20' if age > MAX_AGE */
+        /* '<S11>:1:20' if age > MAX_AGE */
         if (mixr1_v2_dev_DW.age > 12.0) {
-          /* '<S7>:1:20' , */
-          /* '<S7>:1:20' n = 0; */
+          /* '<S11>:1:20' , */
+          /* '<S11>:1:20' n = 0; */
           mixr1_v2_dev_DW.n = 0.0;
         }
 
-        /* '<S7>:1:21' buf  = [buf(2:3), d]; */
+        /* '<S11>:1:21' buf  = [buf(2:3), d]; */
         mixr1_v2_dev_DW.buf[0] = mixr1_v2_dev_DW.buf[1];
         mixr1_v2_dev_DW.buf[1] = mixr1_v2_dev_DW.buf[2];
         mixr1_v2_dev_DW.buf[2] = d;
 
-        /* '<S7>:1:22' n    = min(n + 1, 3); */
+        /* '<S11>:1:22' n    = min(n + 1, 3); */
         if (mixr1_v2_dev_DW.n + 1.0 <= 3.0) {
           mixr1_v2_dev_DW.n++;
         } else {
           mixr1_v2_dev_DW.n = 3.0;
         }
 
-        /* '<S7>:1:23' age  = 0; */
+        /* '<S11>:1:23' age  = 0; */
         mixr1_v2_dev_DW.age = 0.0;
 
-        /* '<S7>:1:24' have = true; */
+        /* '<S11>:1:24' have = true; */
         mixr1_v2_dev_DW.have = true;
 
-        /* '<S7>:1:25' rawV = double(dist); */
-        /* '<S7>:1:26' corrV = d; */
-        /* '<S7>:1:27' lvl  = max(0, lgain * (zero - median(buf(4-n:3)) - thickness)); */
+        /* '<S11>:1:25' rawV = double(dist); */
+        /* '<S11>:1:26' corrV = d; */
+        /* '<S11>:1:27' lvl  = max(0, lgain * (zero - median(buf(4-n:3)) - thickness)); */
         switch (4 - (int32_T)(4.0 - mixr1_v2_dev_DW.n)) {
          case 1:
           d = mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n) - 1];
           break;
 
          case 2:
-          trip = mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n) - 1];
-          d = (mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n)] - trip) /
-            2.0 + trip;
+          d = mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n) - 1];
+          d += (mixr1_v2_dev_DW.buf[(int32_T)(4.0 - mixr1_v2_dev_DW.n)] - d) /
+            2.0;
           break;
 
          default:
@@ -331,63 +351,51 @@ void mixr1_v2_dev_step(void)
           mixr1_v2_dev_DW.lvl = valve_V;
         }
 
-        /* '<S7>:1:28' else */
-        /* '<S7>:1:29' age = min(age + 1, 1e6); */
+        /* '<S11>:1:28' else */
+        /* '<S11>:1:29' age = min(age + 1, 1e6); */
       } else if (mixr1_v2_dev_DW.age + 1.0 <= 1.0E+6) {
         mixr1_v2_dev_DW.age++;
       } else {
         mixr1_v2_dev_DW.age = 1.0E+6;
       }
 
-      /* '<S7>:1:31' else */
-      /* '<S7>:1:32' age = min(age + 1, 1e6); */
+      /* '<S11>:1:31' else */
+      /* '<S11>:1:32' age = min(age + 1, 1e6); */
     } else if (mixr1_v2_dev_DW.age + 1.0 <= 1.0E+6) {
       mixr1_v2_dev_DW.age++;
     } else {
       mixr1_v2_dev_DW.age = 1.0E+6;
     }
 
-    /* '<S7>:1:35' level = lvl; */
+    /* '<S11>:1:35' level = lvl; */
     mixr1_v2_dev_B.level = mixr1_v2_dev_DW.lvl;
 
-    /* '<S7>:1:36' valid = have && (age <= MAX_AGE); */
+    /* '<S11>:1:36' valid = have && (age <= MAX_AGE); */
     mixr1_v2_dev_B.valid = (mixr1_v2_dev_DW.have && (mixr1_v2_dev_DW.age <= 12.0));
 
-    /* End of MATLAB Function: '<S2>/level_calc' */
+    /* End of MATLAB Function: '<S3>/level_calc' */
 
-    /* Scope: '<Root>/Scope' */
-    /* '<S7>:1:37' raw   = rawV; */
-    /* '<S7>:1:38' corr  = corrV; */
-  }
-
-  /* TransferFcn: '<Root>/level_display (smoothed, display only — not used for control).' */
-  mixr1_v2_dev_B.level_displaysmootheddisplayonl = 0.0;
-  mixr1_v2_dev_B.level_displaysmootheddisplayonl +=
-    mixr1_v2_dev_P.level_displaysmootheddisplayo_c *
-    mixr1_v2_dev_X.level_displaysmootheddisplayonl;
-  if (wanted) {
-    /* MATLAB Function: '<S1>/MATLAB Function' incorporates:
-     *  Constant: '<Root>/band'
-     *  Constant: '<Root>/mode'
-     *  Constant: '<Root>/pumpV'
-     *  Constant: '<Root>/setpoint'
-     *  Constant: '<Root>/valveV'
-     *  Constant: '<S1>/mixr1_bench.ceiling_margin_mm'
-     *  Constant: '<S1>/mixr1_bench.max_V'
-     *  Constant: '<S1>/mixr1_bench.max_level_mm'
-     *  Constant: '<S1>/mixr1_bench.min_V'
-     *  Constant: '<S1>/mixr1_bench.min_band_mm'
-     *  Constant: '<S1>/mixr1_bench.valve_floor_mm'
+    /* MATLAB Function: '<S5>/MATLAB Function' incorporates:
+     *  Constant: '<S2>/mode'
+     *  Constant: '<S5>/mixr1_bench.ceiling_margin_mm'
+     *  Constant: '<S5>/mixr1_bench.max_V'
+     *  Constant: '<S5>/mixr1_bench.max_level_mm'
+     *  Constant: '<S5>/mixr1_bench.min_V'
+     *  Constant: '<S5>/mixr1_bench.min_band_mm'
+     *  Constant: '<S5>/mixr1_bench.valve_floor_mm'
+     *  Constant: '<S5>/valveV'
      */
-    /* MATLAB Function 'Controller/MATLAB Function': '<S6>:1' */
-    /* '<S6>:1:17' if isempty(sw) */
-    /* '<S6>:1:19' trip      = max_level - margin; */
+    /* '<S11>:1:37' raw   = rawV; */
+    /* '<S11>:1:38' corr  = corrV; */
+    /* MATLAB Function 'Controller/Controller/MATLAB Function': '<S8>:1' */
+    /* '<S8>:1:17' if isempty(sw) */
+    /* '<S8>:1:19' trip      = max_level - margin; */
     trip = mixr1_v2_dev_P.mixr1_benchmax_level_mm_Value -
       mixr1_v2_dev_P.mixr1_benchceiling_margin_mm_Va;
 
-    /* '<S6>:1:20' p         = min(max(band_pct, 0), 50) / 100; */
-    if (student_band >= 0.0) {
-      d = student_band;
+    /* '<S8>:1:20' p         = min(max(band_pct, 0), 50) / 100; */
+    if (mixr1_v2_dev_B.band >= 0.0) {
+      d = mixr1_v2_dev_B.band;
     } else {
       d = 0.0;
     }
@@ -398,13 +406,13 @@ void mixr1_v2_dev_step(void)
 
     d /= 100.0;
 
-    /* '<S6>:1:21' sp1       = min(setpoint, trip / (1 + p)); */
+    /* '<S8>:1:21' sp1       = min(setpoint, trip / (1 + p)); */
     sp1 = trip / (d + 1.0);
-    if ((student_sp <= sp1) || rtIsNaN(sp1)) {
-      sp1 = student_sp;
+    if ((mixr1_v2_dev_B.setpoint <= sp1) || rtIsNaN(sp1)) {
+      sp1 = mixr1_v2_dev_B.setpoint;
     }
 
-    /* '<S6>:1:22' band_used = min(max(sp1 * p, min_band), (trip - floor_mm) / 2); */
+    /* '<S8>:1:22' band_used = min(max(sp1 * p, min_band), (trip - floor_mm) / 2); */
     valve_V = sp1 * d;
     if (!(valve_V >= mixr1_v2_dev_P.mixr1_benchmin_band_mm_Value) && !rtIsNaN
         (mixr1_v2_dev_P.mixr1_benchmin_band_mm_Value)) {
@@ -416,7 +424,7 @@ void mixr1_v2_dev_step(void)
       d = valve_V;
     }
 
-    /* '<S6>:1:23' sp_used   = min(max(sp1, floor_mm + band_used), trip - band_used); */
+    /* '<S8>:1:23' sp_used   = min(max(sp1, floor_mm + band_used), trip - band_used); */
     valve_V = mixr1_v2_dev_P.mixr1_benchvalve_floor_mm_Value + d;
     if ((sp1 >= valve_V) || rtIsNaN(valve_V)) {
       valve_V = sp1;
@@ -427,11 +435,11 @@ void mixr1_v2_dev_step(void)
       trip = valve_V;
     }
 
-    /* '<S6>:1:24' pump_V    = min(max(pumpV,  min_V), max_V); */
+    /* '<S8>:1:24' pump_V    = min(max(pumpV,  min_V), max_V); */
     active = rtIsNaN(mixr1_v2_dev_P.mixr1_benchmin_V_Value);
-    if ((mixr1_v2_dev_P.pumpV_Value >= mixr1_v2_dev_P.mixr1_benchmin_V_Value) ||
+    if ((mixr1_v2_dev_B.pumpV >= mixr1_v2_dev_P.mixr1_benchmin_V_Value) ||
         active) {
-      sp1 = mixr1_v2_dev_P.pumpV_Value;
+      sp1 = mixr1_v2_dev_B.pumpV;
     } else {
       sp1 = mixr1_v2_dev_P.mixr1_benchmin_V_Value;
     }
@@ -441,7 +449,7 @@ void mixr1_v2_dev_step(void)
       sp1 = mixr1_v2_dev_P.mixr1_benchmax_V_Value;
     }
 
-    /* '<S6>:1:25' valve_V   = min(max(valveV, min_V), max_V); */
+    /* '<S8>:1:25' valve_V   = min(max(valveV, min_V), max_V); */
     if ((mixr1_v2_dev_P.valveV_Value >= mixr1_v2_dev_P.mixr1_benchmin_V_Value) ||
         active) {
       valve_V = mixr1_v2_dev_P.valveV_Value;
@@ -453,117 +461,118 @@ void mixr1_v2_dev_step(void)
       valve_V = mixr1_v2_dev_P.mixr1_benchmax_V_Value;
     }
 
-    /* '<S6>:1:27' if mode ~= prevMode */
+    /* '<S8>:1:27' if mode ~= prevMode */
     if (student_mode != mixr1_v2_dev_DW.prevMode) {
-      /* '<S6>:1:27' , */
-      /* '<S6>:1:27' sw = false; */
+      /* '<S8>:1:27' , */
+      /* '<S8>:1:27' sw = false; */
       mixr1_v2_dev_DW.sw = false;
     }
 
-    /* '<S6>:1:28' prevMode = mode; */
+    /* '<S8>:1:28' prevMode = mode; */
     mixr1_v2_dev_DW.prevMode = student_mode;
 
-    /* '<S6>:1:30' if mode == 0 */
+    /* '<S8>:1:30' if mode == 0 */
     if (student_mode == 0.0) {
-      /* '<S6>:1:30' , */
-      /* '<S6>:1:30' armed = true; */
+      /* '<S8>:1:30' , */
+      /* '<S8>:1:30' armed = true; */
       mixr1_v2_dev_DW.armed = true;
     }
 
-    /* '<S6>:1:31' wanted  = (mode == 1 || mode == 2 || mode == 3); */
+    /* '<S8>:1:31' wanted  = (mode == 1 || mode == 2 || mode == 3); */
     wanted = ((student_mode == 1.0) || (student_mode == 2.0) || (student_mode ==
                3.0));
 
-    /* '<S6>:1:32' active  = armed && wanted; */
+    /* '<S8>:1:32' active  = armed && wanted; */
     active = (mixr1_v2_dev_DW.armed && wanted);
 
-    /* '<S6>:1:33' pump_en = false; */
+    /* '<S8>:1:33' pump_en = false; */
     mixr1_v2_dev_B.pump_en = false;
 
-    /* '<S6>:1:34' valve_en = false; */
+    /* '<S8>:1:34' valve_en = false; */
     mixr1_v2_dev_B.valve_en = false;
 
-    /* '<S6>:1:35' status  = uint8(0); */
+    /* '<S8>:1:35' status  = uint8(0); */
     mixr1_v2_dev_B.status_p = 0U;
 
-    /* '<S6>:1:37' if ~active || ~valid */
+    /* '<S8>:1:37' if ~active || ~valid */
     if (!active || !mixr1_v2_dev_B.valid) {
-      /* '<S6>:1:38' sw = false; */
+      /* '<S8>:1:38' sw = false; */
       mixr1_v2_dev_DW.sw = false;
 
-      /* '<S6>:1:39' if active */
+      /* '<S8>:1:39' if active */
       if (active) {
-        /* '<S6>:1:40' status = uint8(3); */
+        /* '<S8>:1:40' status = uint8(3); */
         mixr1_v2_dev_B.status_p = 3U;
       } else if (wanted) {
-        /* '<S6>:1:41' elseif wanted */
-        /* '<S6>:1:42' status = uint8(4); */
+        /* '<S8>:1:41' elseif wanted */
+        /* '<S8>:1:42' status = uint8(4); */
         mixr1_v2_dev_B.status_p = 4U;
       }
     } else if (student_mode == 3.0) {
-      /* '<S6>:1:44' elseif mode == 3 */
-      /* '<S6>:1:45' sw       = false; */
+      /* '<S8>:1:44' elseif mode == 3 */
+      /* '<S8>:1:45' sw       = false; */
       mixr1_v2_dev_DW.sw = false;
 
-      /* '<S6>:1:46' pump_en  = false; */
+      /* '<S8>:1:46' pump_en  = false; */
       mixr1_v2_dev_B.pump_en = false;
 
-      /* '<S6>:1:47' valve_en = true; */
+      /* '<S8>:1:47' valve_en = true; */
       mixr1_v2_dev_B.valve_en = true;
 
-      /* '<S6>:1:48' status   = uint8(2); */
+      /* '<S8>:1:48' status   = uint8(2); */
       mixr1_v2_dev_B.status_p = 2U;
     } else if (student_mode == 1.0) {
-      /* '<S6>:1:49' elseif mode == 1 */
-      /* '<S6>:1:50' if level >= sp_used + band_used */
+      /* '<S8>:1:49' elseif mode == 1 */
+      /* '<S8>:1:50' if level >= sp_used + band_used */
       if (mixr1_v2_dev_B.level >= trip + d) {
-        /* '<S6>:1:51' sw = true; */
+        /* '<S8>:1:51' sw = true; */
         mixr1_v2_dev_DW.sw = true;
       } else if (mixr1_v2_dev_B.level <= trip - d) {
-        /* '<S6>:1:52' elseif level <= sp_used - band_used */
-        /* '<S6>:1:53' sw = false; */
+        /* '<S8>:1:52' elseif level <= sp_used - band_used */
+        /* '<S8>:1:53' sw = false; */
         mixr1_v2_dev_DW.sw = false;
       }
 
-      /* '<S6>:1:55' pump_en  = true; */
+      /* '<S8>:1:55' pump_en  = true; */
       mixr1_v2_dev_B.pump_en = true;
 
-      /* '<S6>:1:56' valve_en = sw; */
+      /* '<S8>:1:56' valve_en = sw; */
       mixr1_v2_dev_B.valve_en = mixr1_v2_dev_DW.sw;
 
-      /* '<S6>:1:57' status   = uint8(1 + double(sw)); */
+      /* '<S8>:1:57' status   = uint8(1 + double(sw)); */
       mixr1_v2_dev_B.status_p = (uint8_T)(mixr1_v2_dev_DW.sw + 1);
     } else {
-      /* '<S6>:1:58' else */
-      /* '<S6>:1:59' if level <= sp_used - band_used */
+      /* '<S8>:1:58' else */
+      /* '<S8>:1:59' if level <= sp_used - band_used */
       if (mixr1_v2_dev_B.level <= trip - d) {
-        /* '<S6>:1:60' sw = true; */
+        /* '<S8>:1:60' sw = true; */
         mixr1_v2_dev_DW.sw = true;
       } else if (mixr1_v2_dev_B.level >= trip + d) {
-        /* '<S6>:1:61' elseif level >= sp_used + band_used */
-        /* '<S6>:1:62' sw = false; */
+        /* '<S8>:1:61' elseif level >= sp_used + band_used */
+        /* '<S8>:1:62' sw = false; */
         mixr1_v2_dev_DW.sw = false;
       }
 
-      /* '<S6>:1:64' pump_en  = sw; */
+      /* '<S8>:1:64' pump_en  = sw; */
       mixr1_v2_dev_B.pump_en = mixr1_v2_dev_DW.sw;
 
-      /* '<S6>:1:65' valve_en = true; */
+      /* '<S8>:1:65' valve_en = true; */
       mixr1_v2_dev_B.valve_en = true;
 
-      /* '<S6>:1:66' status   = uint8(2 - double(sw)); */
+      /* '<S8>:1:66' status   = uint8(2 - double(sw)); */
       mixr1_v2_dev_B.status_p = (uint8_T)(2 - mixr1_v2_dev_DW.sw);
     }
 
-    /* End of MATLAB Function: '<S1>/MATLAB Function' */
-    /* MATLAB Function: '<S4>/pump_guard' incorporates:
-     *  Constant: '<S4>/mixr1_bench.max_V'
-     *  Constant: '<S4>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
-     *  Constant: '<S4>/mixr1_bench.max_run_s'
-     *  Constant: '<S4>/mixr1_bench.min_V'
-     *  MATLAB Function: '<S5>/valve_guard'
+    /* End of MATLAB Function: '<S5>/MATLAB Function' */
+
+    /* MATLAB Function: '<S6>/pump_guard' incorporates:
+     *  Constant: '<S6>/mixr1_bench.max_V'
+     *  Constant: '<S6>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
+     *  Constant: '<S6>/mixr1_bench.max_run_s'
+     *  Constant: '<S6>/mixr1_bench.min_V'
+     *  MATLAB Function: '<S7>/valve_guard'
      */
-    /* MATLAB Function 'Pump Guard/pump_guard': '<S9>:1' */
+    /* MATLAB Function 'Controller/Pump Guard/pump_guard': '<S9>:1' */
     /* '<S9>:1:8' DT = 0.05; */
     /* '<S9>:1:8' RELEASE = 5; */
     /* '<S9>:1:8' REST_S = 2; */
@@ -669,14 +678,15 @@ void mixr1_v2_dev_step(void)
 
     mixr1_v2_dev_B.guard_b = guard;
 
-    /* End of MATLAB Function: '<S4>/pump_guard' */
-    /* MATLAB Function: '<S5>/valve_guard' incorporates:
-     *  Constant: '<S5>/mixr1_bench.max_V'
-     *  Constant: '<S5>/mixr1_bench.max_run_s'
-     *  Constant: '<S5>/mixr1_bench.min_V'
-     *  Constant: '<S5>/mixr1_bench.valve_floor_mm'
+    /* End of MATLAB Function: '<S6>/pump_guard' */
+
+    /* MATLAB Function: '<S7>/valve_guard' incorporates:
+     *  Constant: '<S7>/mixr1_bench.max_V'
+     *  Constant: '<S7>/mixr1_bench.max_run_s'
+     *  Constant: '<S7>/mixr1_bench.min_V'
+     *  Constant: '<S7>/mixr1_bench.valve_floor_mm'
      */
-    /* MATLAB Function 'Valve Guard/valve_guard': '<S10>:1' */
+    /* MATLAB Function 'Controller/Valve Guard/valve_guard': '<S10>:1' */
     /* '<S10>:1:7' DT = 0.05; */
     /* '<S10>:1:7' RELEASE = 2; */
     /* '<S10>:1:7' REST_S = 2; */
@@ -778,79 +788,104 @@ void mixr1_v2_dev_step(void)
 
     mixr1_v2_dev_B.guard = guard;
 
-    /* MATLAB Function: '<Root>/MATLAB Function' incorporates:
-     *  Constant: '<Root>/mixr1_bench.pump_on_counts'
-     *  Constant: '<Root>/mixr1_bench.valve_on_counts'
+    /* MATLAB Function: '<S1>/MATLAB Function' incorporates:
+     *  Constant: '<S1>/mixr1_bench.pump_on_counts'
+     *  Constant: '<S1>/mixr1_bench.valve_on_counts'
      */
-    /* MATLAB Function 'MATLAB Function': '<S3>:1' */
-    /* '<S3>:1:8' coder.extrinsic('which', 'fileparts'); */
-    /* '<S3>:1:10' if isempty(started) */
-    /* '<S3>:1:11' if ~coder.target('Sfun') */
-    /* '<S3>:1:12' srcDir = coder.const(fileparts(which('act2_wrapper.c'))); */
-    /* '<S3>:1:13' coder.cinclude('act2_wrapper.h'); */
-    /* '<S3>:1:14' coder.updateBuildInfo('addIncludePaths', srcDir); */
-    /* '<S3>:1:15' coder.updateBuildInfo('addSourcePaths',  srcDir); */
-    /* '<S3>:1:16' coder.updateBuildInfo('addSourceFiles', 'act2_wrapper.c'); */
-    /* '<S3>:1:17' coder.updateBuildInfo('addLinkFlags', '-lwiringPi'); */
-    /* '<S3>:1:18' if ~started */
-    if (!mixr1_v2_dev_DW.started) {
-      /* '<S3>:1:19' coder.ceval('act2_init'); */
+    /* MATLAB Function 'Actuators/MATLAB Function': '<S4>:1' */
+    /* '<S4>:1:8' coder.extrinsic('which', 'fileparts'); */
+    /* '<S4>:1:10' if isempty(started) */
+    /* '<S4>:1:11' if ~coder.target('Sfun') */
+    /* '<S4>:1:12' srcDir = coder.const(fileparts(which('act2_wrapper.c'))); */
+    /* '<S4>:1:13' coder.cinclude('act2_wrapper.h'); */
+    /* '<S4>:1:14' coder.updateBuildInfo('addIncludePaths', srcDir); */
+    /* '<S4>:1:15' coder.updateBuildInfo('addSourcePaths',  srcDir); */
+    /* '<S4>:1:16' coder.updateBuildInfo('addSourceFiles', 'act2_wrapper.c'); */
+    /* '<S4>:1:17' coder.updateBuildInfo('addLinkFlags', '-lwiringPi'); */
+    /* '<S4>:1:18' if ~started */
+    if (!mixr1_v2_dev_DW.started_o) {
+      /* '<S4>:1:19' coder.ceval('act2_init'); */
       act2_init();
 
-      /* '<S3>:1:20' started = true; */
-      mixr1_v2_dev_DW.started = true;
+      /* '<S4>:1:20' started = true; */
+      mixr1_v2_dev_DW.started_o = true;
     }
 
-    /* '<S3>:1:24' V_REF = 12; */
-    /* '<S3>:1:25' pc = double(pump_counts) * min(max(double(pump_V), 0), V_REF) / V_REF; */
-    if (mixr1_v2_dev_B.applied_V_d >= 0.0) {
-      d = mixr1_v2_dev_B.applied_V_d;
-    } else {
-      d = 0.0;
+    /* '<S4>:1:25' CAL_V = [0 1.92 3.2 4.1 4.9 5.7 6.5 7.2 7.9 8.7 9.4 10.2 10.9 12.0]; */
+    /* '<S4>:1:26' CAL_C = [0 12 25 37 50 62 75 87 99 112 124 137 149 167]; */
+    /* '<S4>:1:27' t  = double(pump_V); */
+    /* '<S4>:1:28' pc = CAL_C(end); */
+    d = 167.0;
+
+    /* '<S4>:1:29' if t < CAL_V(end) */
+    if (mixr1_v2_dev_B.applied_V_d < 12.0) {
+      /* '<S4>:1:30' for k = 2:numel(CAL_V) */
+      j2 = 0;
+      exitg1 = false;
+      while (!exitg1 && (j2 < 13)) {
+        /* '<S4>:1:31' if t <= CAL_V(k) */
+        trip = b[j2 + 1];
+        if (mixr1_v2_dev_B.applied_V_d <= trip) {
+          /* '<S4>:1:32' pc = CAL_C(k-1) + (CAL_C(k) - CAL_C(k-1)) * (t - CAL_V(k-1)) / (CAL_V(k) - CAL_V(k-1)); */
+          d = (real_T)(c[j2 + 1] - c[j2]) * (mixr1_v2_dev_B.applied_V_d - b[j2])
+            / (trip - b[j2]) + (real_T)c[j2];
+          exitg1 = true;
+        } else {
+          j2++;
+        }
+      }
     }
 
-    if (!(d <= 12.0)) {
-      d = 12.0;
+    /* '<S4>:1:37' pc = min(pc, double(pump_counts)); */
+    if (!(d <= mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value) && !rtIsNaN
+        (mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value)) {
+      d = mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value;
     }
 
-    d = mixr1_v2_dev_P.mixr1_benchpump_on_counts_Value * d / 12.0;
-
-    /* '<S3>:1:26' if pump_V > 0 */
+    /* '<S4>:1:38' if pump_V > 0 */
     if ((mixr1_v2_dev_B.applied_V_d > 0.0) && !(d >= 1.0)) {
-      /* '<S3>:1:26' , */
-      /* '<S3>:1:26' pc = max(pc, 1); */
+      /* '<S4>:1:38' , */
+      /* '<S4>:1:38' pc = max(pc, 1); */
       d = 1.0;
     }
 
-    /* '<S3>:1:27' coder.ceval('act2_pump',  uint8(pump_V  > 0), uint16(round(pc))); */
+    /* '<S4>:1:39' coder.ceval('act2_pump',  uint8(pump_V  > 0), uint16(round(pc))); */
     trip = rt_roundd_snf(d);
     if (trip < 65536.0) {
       if (trip >= 0.0) {
-        tmp_0 = (uint16_T)trip;
+        tmp_1 = (uint16_T)trip;
       } else {
-        tmp_0 = 0U;
+        tmp_1 = 0U;
       }
     } else {
-      tmp_0 = MAX_uint16_T;
+      tmp_1 = MAX_uint16_T;
     }
 
-    act2_pump((uint8_T)(mixr1_v2_dev_B.applied_V_d > 0.0), tmp_0);
+    act2_pump((uint8_T)(mixr1_v2_dev_B.applied_V_d > 0.0), tmp_1);
 
-    /* '<S3>:1:28' coder.ceval('act2_valve', uint8(valve_V > 0), uint16(valve_counts)); */
+    /* '<S4>:1:40' coder.ceval('act2_valve', uint8(valve_V > 0), uint16(valve_counts)); */
     trip = rt_roundd_snf(mixr1_v2_dev_P.mixr1_benchvalve_on_counts_Valu);
     if (trip < 65536.0) {
       if (trip >= 0.0) {
-        tmp_0 = (uint16_T)trip;
+        tmp_1 = (uint16_T)trip;
       } else {
-        tmp_0 = 0U;
+        tmp_1 = 0U;
       }
     } else {
-      tmp_0 = MAX_uint16_T;
+      tmp_1 = MAX_uint16_T;
     }
 
-    act2_valve((uint8_T)(mixr1_v2_dev_B.applied_V > 0.0), tmp_0);
+    act2_valve((uint8_T)(mixr1_v2_dev_B.applied_V > 0.0), tmp_1);
 
-    /* End of MATLAB Function: '<Root>/MATLAB Function' */
+    /* End of MATLAB Function: '<S1>/MATLAB Function' */
+  }
+
+  /* TransferFcn: '<S3>/level_display (smoothed, display only — not used for control).' */
+  mixr1_v2_dev_B.level_displaysmootheddisplayonl = 0.0;
+  mixr1_v2_dev_B.level_displaysmootheddisplayonl +=
+    mixr1_v2_dev_P.level_displaysmootheddisplayo_c *
+    mixr1_v2_dev_X.level_displaysmootheddisplayonl;
+  if (tmp) {
   }
 
   if (rtmIsMajorTimeStep(mixr1_v2_dev_M)) {
@@ -899,7 +934,7 @@ void mixr1_v2_dev_derivatives(void)
   XDot_mixr1_v2_dev_T *_rtXdot;
   _rtXdot = ((XDot_mixr1_v2_dev_T *) mixr1_v2_dev_M->derivs);
 
-  /* Derivatives for TransferFcn: '<Root>/level_display (smoothed, display only — not used for control).' */
+  /* Derivatives for TransferFcn: '<S3>/level_display (smoothed, display only — not used for control).' */
   _rtXdot->level_displaysmootheddisplayonl =
     mixr1_v2_dev_P.level_displaysmootheddisplayonl *
     mixr1_v2_dev_X.level_displaysmootheddisplayonl;
@@ -962,10 +997,10 @@ void mixr1_v2_dev_initialize(void)
   mixr1_v2_dev_M->Timing.stepSize0 = 0.05;
 
   /* External mode info */
-  mixr1_v2_dev_M->Sizes.checksums[0] = (111657708U);
-  mixr1_v2_dev_M->Sizes.checksums[1] = (1656182479U);
-  mixr1_v2_dev_M->Sizes.checksums[2] = (296042422U);
-  mixr1_v2_dev_M->Sizes.checksums[3] = (1070193155U);
+  mixr1_v2_dev_M->Sizes.checksums[0] = (1303182460U);
+  mixr1_v2_dev_M->Sizes.checksums[1] = (3593234078U);
+  mixr1_v2_dev_M->Sizes.checksums[2] = (2014624647U);
+  mixr1_v2_dev_M->Sizes.checksums[3] = (1190505499U);
 
   {
     static const sysRanDType rtAlwaysEnabled = SUBSYS_RAN_BC_ENABLE;
@@ -1007,48 +1042,57 @@ void mixr1_v2_dev_initialize(void)
   (void) memset((void *)&mixr1_v2_dev_DW, 0,
                 sizeof(DW_mixr1_v2_dev_T));
 
-  /* InitializeConditions for TransferFcn: '<Root>/level_display (smoothed, display only — not used for control).' */
+  /* Start for Constant: '<S2>/setpoint' */
+  mixr1_v2_dev_B.setpoint = student_sp;
+
+  /* Start for Constant: '<S2>/band' */
+  mixr1_v2_dev_B.band = student_band;
+
+  /* Start for Constant: '<S2>/pumpV' */
+  mixr1_v2_dev_B.pumpV = student_pumpV;
+
+  /* InitializeConditions for TransferFcn: '<S3>/level_display (smoothed, display only — not used for control).' */
   mixr1_v2_dev_X.level_displaysmootheddisplayonl = 0.0;
 
-  /* SystemInitialize for MATLAB Function: '<S2>/tof_read' */
-  /* '<S8>:1:11' k = uint32(0); */
-  /* '<S8>:1:12' frame = uint32(0); */
-  /* '<S8>:1:13' lastDist = uint16(0); */
-  /* '<S8>:1:14' started = false; */
-  mixr1_v2_dev_DW.started_d = false;
+  /* SystemInitialize for MATLAB Function: '<S3>/tof_read' */
+  /* '<S12>:1:11' k = uint32(0); */
+  /* '<S12>:1:12' frame = uint32(0); */
+  /* '<S12>:1:13' lastDist = uint16(0); */
+  /* '<S12>:1:14' started = false; */
+  mixr1_v2_dev_DW.started = false;
 
-  /* SystemInitialize for MATLAB Function: '<S2>/level_calc' */
-  /* '<S7>:1:12' buf = zeros(1,3); */
+  /* SystemInitialize for MATLAB Function: '<S3>/level_calc' */
+  /* '<S11>:1:12' buf = zeros(1,3); */
   mixr1_v2_dev_DW.buf[0] = 0.0;
   mixr1_v2_dev_DW.buf[1] = 0.0;
   mixr1_v2_dev_DW.buf[2] = 0.0;
 
-  /* '<S7>:1:12' n = 0; */
+  /* '<S11>:1:12' n = 0; */
   mixr1_v2_dev_DW.n = 0.0;
 
-  /* '<S7>:1:12' age = 1e6; */
+  /* '<S11>:1:12' age = 1e6; */
   mixr1_v2_dev_DW.age = 1.0E+6;
 
-  /* '<S7>:1:12' have = false; */
+  /* '<S11>:1:12' have = false; */
   mixr1_v2_dev_DW.have = false;
 
-  /* '<S7>:1:13' lvl = 0; */
+  /* '<S11>:1:13' lvl = 0; */
   mixr1_v2_dev_DW.lvl = 0.0;
 
-  /* SystemInitialize for MATLAB Function: '<S1>/MATLAB Function' */
-  /* '<S7>:1:13' rawV = 0; */
-  /* '<S7>:1:13' corrV = 0; */
-  /* '<S6>:1:17' , */
-  /* '<S6>:1:17' sw = false; */
+  /* SystemInitialize for MATLAB Function: '<S5>/MATLAB Function' */
+  /* '<S11>:1:13' rawV = 0; */
+  /* '<S11>:1:13' corrV = 0; */
+  /* '<S8>:1:17' , */
+  /* '<S8>:1:17' sw = false; */
   mixr1_v2_dev_DW.sw = false;
 
-  /* '<S6>:1:17' prevMode = 0; */
+  /* '<S8>:1:17' prevMode = 0; */
   mixr1_v2_dev_DW.prevMode = 0.0;
 
-  /* '<S6>:1:17' armed = coder.target('Sfun'); */
+  /* '<S8>:1:17' armed = coder.target('Sfun'); */
   mixr1_v2_dev_DW.armed = false;
 
-  /* SystemInitialize for MATLAB Function: '<S4>/pump_guard' */
+  /* SystemInitialize for MATLAB Function: '<S6>/pump_guard' */
   /* '<S9>:1:11' atCeiling = false; */
   mixr1_v2_dev_DW.atCeiling = false;
 
@@ -1061,7 +1105,7 @@ void mixr1_v2_dev_initialize(void)
   /* '<S9>:1:11' latched = false; */
   mixr1_v2_dev_DW.latched_e = false;
 
-  /* SystemInitialize for MATLAB Function: '<S5>/valve_guard' */
+  /* SystemInitialize for MATLAB Function: '<S7>/valve_guard' */
   /* '<S10>:1:10' atFloor = false; */
   mixr1_v2_dev_DW.atFloor = false;
 
@@ -1074,10 +1118,10 @@ void mixr1_v2_dev_initialize(void)
   /* '<S10>:1:10' latched = false; */
   mixr1_v2_dev_DW.latched = false;
 
-  /* SystemInitialize for MATLAB Function: '<Root>/MATLAB Function' */
-  /* '<S3>:1:10' , */
-  /* '<S3>:1:10' started = false; */
-  mixr1_v2_dev_DW.started = false;
+  /* SystemInitialize for MATLAB Function: '<S1>/MATLAB Function' */
+  /* '<S4>:1:10' , */
+  /* '<S4>:1:10' started = false; */
+  mixr1_v2_dev_DW.started_o = false;
 }
 
 /* Model terminate function */

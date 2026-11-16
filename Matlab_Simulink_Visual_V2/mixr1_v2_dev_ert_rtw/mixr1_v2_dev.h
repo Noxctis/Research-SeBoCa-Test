@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.35
+ * Model version              : 1.49
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Sat Nov 14 23:01:16 2026
+ * C source code generated on : Tue Nov 17 03:22:17 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -172,83 +172,86 @@
 
 /* Block signals (default storage) */
 typedef struct {
+  real_T setpoint;                     /* '<S2>/setpoint' */
+  real_T band;                         /* '<S2>/band' */
+  real_T pumpV;                        /* '<S2>/pumpV' */
   real_T level_displaysmootheddisplayonl;
-  /* '<Root>/level_display (smoothed, display only — not used for control).' */
-  real_T applied_V;                    /* '<S5>/valve_guard' */
-  real_T applied_V_d;                  /* '<S4>/pump_guard' */
-  real_T level;                        /* '<S2>/level_calc' */
-  uint16_T dist;                       /* '<S2>/tof_read' */
-  uint8_T guard;                       /* '<S5>/valve_guard' */
-  uint8_T guard_b;                     /* '<S4>/pump_guard' */
-  uint8_T status;                      /* '<S2>/tof_read' */
-  uint8_T newData;                     /* '<S2>/tof_read' */
-  uint8_T status_p;                    /* '<S1>/MATLAB Function' */
-  boolean_T valid;                     /* '<S2>/level_calc' */
-  boolean_T newOut;                    /* '<S2>/level_calc' */
-  boolean_T pump_en;                   /* '<S1>/MATLAB Function' */
-  boolean_T valve_en;                  /* '<S1>/MATLAB Function' */
+     /* '<S3>/level_display (smoothed, display only — not used for control).' */
+  real_T level;                        /* '<S3>/level_calc' */
+  real_T applied_V;                    /* '<S7>/valve_guard' */
+  real_T applied_V_d;                  /* '<S6>/pump_guard' */
+  uint16_T dist;                       /* '<S3>/tof_read' */
+  uint8_T status;                      /* '<S3>/tof_read' */
+  uint8_T newData;                     /* '<S3>/tof_read' */
+  uint8_T guard;                       /* '<S7>/valve_guard' */
+  uint8_T guard_b;                     /* '<S6>/pump_guard' */
+  uint8_T status_p;                    /* '<S5>/MATLAB Function' */
+  boolean_T valid;                     /* '<S3>/level_calc' */
+  boolean_T newOut;                    /* '<S3>/level_calc' */
+  boolean_T pump_en;                   /* '<S5>/MATLAB Function' */
+  boolean_T valve_en;                  /* '<S5>/MATLAB Function' */
 } B_mixr1_v2_dev_T;
 
 /* Block states (default storage) for system '<Root>' */
 typedef struct {
-  real_T runSteps;                     /* '<S5>/valve_guard' */
-  real_T offSteps;                     /* '<S5>/valve_guard' */
-  real_T runSteps_g;                   /* '<S4>/pump_guard' */
-  real_T offSteps_m;                   /* '<S4>/pump_guard' */
-  real_T buf[3];                       /* '<S2>/level_calc' */
-  real_T n;                            /* '<S2>/level_calc' */
-  real_T age;                          /* '<S2>/level_calc' */
-  real_T lvl;                          /* '<S2>/level_calc' */
-  real_T prevMode;                     /* '<S1>/MATLAB Function' */
-  struct {
-    void *LoggedData[3];
-  } Scope_PWORK;                       /* '<Root>/Scope' */
-
+  real_T buf[3];                       /* '<S3>/level_calc' */
+  real_T n;                            /* '<S3>/level_calc' */
+  real_T age;                          /* '<S3>/level_calc' */
+  real_T lvl;                          /* '<S3>/level_calc' */
+  real_T runSteps;                     /* '<S7>/valve_guard' */
+  real_T offSteps;                     /* '<S7>/valve_guard' */
+  real_T runSteps_g;                   /* '<S6>/pump_guard' */
+  real_T offSteps_m;                   /* '<S6>/pump_guard' */
+  real_T prevMode;                     /* '<S5>/MATLAB Function' */
   struct {
     void *LoggedData[4];
   } Scope1_PWORK;                      /* '<Root>/Scope1' */
 
   struct {
     void *LoggedData[2];
-  } Scope2_PWORK;                      /* '<Root>/Scope2' */
+  } Scope2_PWORK;                      /* '<S2>/Scope2' */
 
   struct {
     void *LoggedData[2];
-  } Scope3_PWORK;                      /* '<Root>/Scope3' */
+  } Scope3_PWORK;                      /* '<S2>/Scope3' */
 
-  boolean_T doneDoubleBufferReInit;    /* '<S5>/valve_guard' */
-  boolean_T atFloor;                   /* '<S5>/valve_guard' */
-  boolean_T latched;                   /* '<S5>/valve_guard' */
-  boolean_T doneDoubleBufferReInit_a;  /* '<S4>/pump_guard' */
-  boolean_T atCeiling;                 /* '<S4>/pump_guard' */
-  boolean_T latched_e;                 /* '<S4>/pump_guard' */
-  boolean_T doneDoubleBufferReInit_l;  /* '<Root>/MATLAB Function' */
-  boolean_T started;                   /* '<Root>/MATLAB Function' */
-  boolean_T doneDoubleBufferReInit_p;  /* '<S2>/tof_read' */
-  boolean_T started_d;                 /* '<S2>/tof_read' */
-  boolean_T doneDoubleBufferReInit_i;  /* '<S2>/level_calc' */
-  boolean_T have;                      /* '<S2>/level_calc' */
-  boolean_T doneDoubleBufferReInit_o;  /* '<S1>/MATLAB Function' */
-  boolean_T sw;                        /* '<S1>/MATLAB Function' */
-  boolean_T armed;                     /* '<S1>/MATLAB Function' */
+  struct {
+    void *LoggedData[3];
+  } Scope_PWORK;                       /* '<S3>/Scope' */
+
+  boolean_T doneDoubleBufferReInit;    /* '<S3>/tof_read' */
+  boolean_T started;                   /* '<S3>/tof_read' */
+  boolean_T doneDoubleBufferReInit_i;  /* '<S3>/level_calc' */
+  boolean_T have;                      /* '<S3>/level_calc' */
+  boolean_T doneDoubleBufferReInit_in; /* '<S7>/valve_guard' */
+  boolean_T atFloor;                   /* '<S7>/valve_guard' */
+  boolean_T latched;                   /* '<S7>/valve_guard' */
+  boolean_T doneDoubleBufferReInit_a;  /* '<S6>/pump_guard' */
+  boolean_T atCeiling;                 /* '<S6>/pump_guard' */
+  boolean_T latched_e;                 /* '<S6>/pump_guard' */
+  boolean_T doneDoubleBufferReInit_o;  /* '<S5>/MATLAB Function' */
+  boolean_T sw;                        /* '<S5>/MATLAB Function' */
+  boolean_T armed;                     /* '<S5>/MATLAB Function' */
+  boolean_T doneDoubleBufferReInit_l;  /* '<S1>/MATLAB Function' */
+  boolean_T started_o;                 /* '<S1>/MATLAB Function' */
 } DW_mixr1_v2_dev_T;
 
 /* Continuous states (default storage) */
 typedef struct {
   real_T level_displaysmootheddisplayonl;
-  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+     /* '<S3>/level_display (smoothed, display only — not used for control).' */
 } X_mixr1_v2_dev_T;
 
 /* State derivatives (default storage) */
 typedef struct {
   real_T level_displaysmootheddisplayonl;
-  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+     /* '<S3>/level_display (smoothed, display only — not used for control).' */
 } XDot_mixr1_v2_dev_T;
 
 /* State disabled  */
 typedef struct {
   boolean_T level_displaysmootheddisplayonl;
-  /* '<Root>/level_display (smoothed, display only — not used for control).' */
+     /* '<S3>/level_display (smoothed, display only — not used for control).' */
 } XDis_mixr1_v2_dev_T;
 
 #ifndef ODE3_INTG
@@ -264,92 +267,89 @@ typedef struct {
 
 /* Parameters (default storage) */
 struct P_mixr1_v2_dev_T_ {
+  real_T valveV_Value;                 /* Expression: 6
+                                        * Referenced by: '<S5>/valveV'
+                                        */
   real_T mixr1_benchtof_offset_mm_Value;/* Expression: mixr1_bench.tof_offset_mm
-                                         * Referenced by: '<S2>/mixr1_bench.tof_offset_mm'
+                                         * Referenced by: '<S3>/mixr1_bench.tof_offset_mm'
                                          */
   real_T mixr1_benchtof_budget_ms_Value;/* Expression: mixr1_bench.tof_budget_ms
-                                         * Referenced by: '<S2>/mixr1_bench.tof_budget_ms'
+                                         * Referenced by: '<S3>/mixr1_bench.tof_budget_ms'
                                          */
   real_T gain_Value;                   /* Expression: mixr1_bench.tof_gain
-                                        * Referenced by: '<S2>/gain'
+                                        * Referenced by: '<S3>/gain'
                                         */
   real_T intercept_Value;              /* Expression: mixr1_bench.tof_intercept
-                                        * Referenced by: '<S2>/intercept'
+                                        * Referenced by: '<S3>/intercept'
                                         */
   real_T zero_Value;                   /* Expression: mixr1_bench.zero_mm
-                                        * Referenced by: '<S2>/zero'
+                                        * Referenced by: '<S3>/zero'
                                         */
   real_T thickness_Value;              /* Expression: mixr1_bench.thickness_mm
-                                        * Referenced by: '<S2>/thickness'
+                                        * Referenced by: '<S3>/thickness'
                                         */
   real_T lgain_Value;                  /* Expression: mixr1_bench.lgain
-                                        * Referenced by: '<S2>/lgain'
-                                        */
-  real_T level_displaysmootheddisplayonl;
-                          /* Computed Parameter: level_displaysmootheddisplayonl
-                           * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
-                           */
-  real_T level_displaysmootheddisplayo_c;
-                          /* Computed Parameter: level_displaysmootheddisplayo_c
-                           * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
-                           */
-  real_T pumpV_Value;                  /* Expression: 12
-                                        * Referenced by: '<Root>/pumpV'
-                                        */
-  real_T valveV_Value;                 /* Expression: 6
-                                        * Referenced by: '<Root>/valveV'
+                                        * Referenced by: '<S3>/lgain'
                                         */
   real_T mixr1_benchmin_V_Value;       /* Expression: mixr1_bench.min_V
-                                        * Referenced by: '<S1>/mixr1_bench.min_V'
+                                        * Referenced by: '<S5>/mixr1_bench.min_V'
                                         */
   real_T mixr1_benchmax_V_Value;       /* Expression: mixr1_bench.max_V
-                                        * Referenced by: '<S1>/mixr1_bench.max_V'
+                                        * Referenced by: '<S5>/mixr1_bench.max_V'
                                         */
   real_T mixr1_benchmin_band_mm_Value; /* Expression: mixr1_bench.min_band_mm
-                                        * Referenced by: '<S1>/mixr1_bench.min_band_mm'
+                                        * Referenced by: '<S5>/mixr1_bench.min_band_mm'
                                         */
   real_T mixr1_benchvalve_floor_mm_Value;/* Expression: mixr1_bench.valve_floor_mm
-                                          * Referenced by: '<S1>/mixr1_bench.valve_floor_mm'
+                                          * Referenced by: '<S5>/mixr1_bench.valve_floor_mm'
                                           */
   real_T mixr1_benchmax_level_mm_Value;/* Expression: mixr1_bench.max_level_mm
-                                        * Referenced by: '<S1>/mixr1_bench.max_level_mm'
+                                        * Referenced by: '<S5>/mixr1_bench.max_level_mm'
                                         */
   real_T mixr1_benchceiling_margin_mm_Va;
                                     /* Expression: mixr1_bench.ceiling_margin_mm
-                                     * Referenced by: '<S1>/mixr1_bench.ceiling_margin_mm'
+                                     * Referenced by: '<S5>/mixr1_bench.ceiling_margin_mm'
                                      */
   real_T mixr1_benchmin_V_Value_i;     /* Expression: mixr1_bench.min_V
-                                        * Referenced by: '<S4>/mixr1_bench.min_V'
+                                        * Referenced by: '<S6>/mixr1_bench.min_V'
                                         */
   real_T mixr1_benchmax_V_Value_c;     /* Expression: mixr1_bench.max_V
-                                        * Referenced by: '<S4>/mixr1_bench.max_V'
+                                        * Referenced by: '<S6>/mixr1_bench.max_V'
                                         */
   real_T mixr1_benchmax_level_mmmixr1_be;
          /* Expression: mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
-          * Referenced by: '<S4>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
+          * Referenced by: '<S6>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
           */
   real_T mixr1_benchmax_run_s_Value;   /* Expression: mixr1_bench.max_run_s
-                                        * Referenced by: '<S4>/mixr1_bench.max_run_s'
+                                        * Referenced by: '<S6>/mixr1_bench.max_run_s'
                                         */
   real_T mixr1_benchmin_V_Value_a;     /* Expression: mixr1_bench.min_V
-                                        * Referenced by: '<S5>/mixr1_bench.min_V'
+                                        * Referenced by: '<S7>/mixr1_bench.min_V'
                                         */
   real_T mixr1_benchmax_V_Value_g;     /* Expression: mixr1_bench.max_V
-                                        * Referenced by: '<S5>/mixr1_bench.max_V'
+                                        * Referenced by: '<S7>/mixr1_bench.max_V'
                                         */
   real_T mixr1_benchvalve_floor_mm_Val_p;/* Expression: mixr1_bench.valve_floor_mm
-                                          * Referenced by: '<S5>/mixr1_bench.valve_floor_mm'
+                                          * Referenced by: '<S7>/mixr1_bench.valve_floor_mm'
                                           */
   real_T mixr1_benchmax_run_s_Value_c; /* Expression: mixr1_bench.max_run_s
-                                        * Referenced by: '<S5>/mixr1_bench.max_run_s'
+                                        * Referenced by: '<S7>/mixr1_bench.max_run_s'
                                         */
   real_T mixr1_benchpump_on_counts_Value;/* Expression: mixr1_bench.pump_on_counts
-                                          * Referenced by: '<Root>/mixr1_bench.pump_on_counts'
+                                          * Referenced by: '<S1>/mixr1_bench.pump_on_counts'
                                           */
   real_T mixr1_benchvalve_on_counts_Valu;
                                       /* Expression: mixr1_bench.valve_on_counts
-                                       * Referenced by: '<Root>/mixr1_bench.valve_on_counts'
+                                       * Referenced by: '<S1>/mixr1_bench.valve_on_counts'
                                        */
+  real_T level_displaysmootheddisplayonl;
+                          /* Computed Parameter: level_displaysmootheddisplayonl
+                           * Referenced by: '<S3>/level_display (smoothed, display only — not used for control).'
+                           */
+  real_T level_displaysmootheddisplayo_c;
+                          /* Computed Parameter: level_displaysmootheddisplayo_c
+                           * Referenced by: '<S3>/level_display (smoothed, display only — not used for control).'
+                           */
 };
 
 /* Real-time Model Data Structure */
@@ -433,13 +433,16 @@ extern DW_mixr1_v2_dev_T mixr1_v2_dev_DW;
  *
  */
 extern real_T student_band;            /* Variable: student_band
-                                        * Referenced by: '<Root>/band'
+                                        * Referenced by: '<S2>/band'
                                         */
 extern real_T student_mode;            /* Variable: student_mode
-                                        * Referenced by: '<Root>/mode'
+                                        * Referenced by: '<S2>/mode'
+                                        */
+extern real_T student_pumpV;           /* Variable: student_pumpV
+                                        * Referenced by: '<S2>/pumpV'
                                         */
 extern real_T student_sp;              /* Variable: student_sp
-                                        * Referenced by: '<Root>/setpoint'
+                                        * Referenced by: '<S2>/setpoint'
                                         */
 
 /* Model entry point functions */
@@ -467,15 +470,17 @@ extern volatile boolean_T runModel;
  * Here is the system hierarchy for this model
  *
  * '<Root>' : 'mixr1_v2_dev'
- * '<S1>'   : 'mixr1_v2_dev/Controller'
- * '<S2>'   : 'mixr1_v2_dev/Level Sensor'
- * '<S3>'   : 'mixr1_v2_dev/MATLAB Function'
- * '<S4>'   : 'mixr1_v2_dev/Pump Guard'
- * '<S5>'   : 'mixr1_v2_dev/Valve Guard'
- * '<S6>'   : 'mixr1_v2_dev/Controller/MATLAB Function'
- * '<S7>'   : 'mixr1_v2_dev/Level Sensor/level_calc'
- * '<S8>'   : 'mixr1_v2_dev/Level Sensor/tof_read'
- * '<S9>'   : 'mixr1_v2_dev/Pump Guard/pump_guard'
- * '<S10>'  : 'mixr1_v2_dev/Valve Guard/valve_guard'
+ * '<S1>'   : 'mixr1_v2_dev/Actuators'
+ * '<S2>'   : 'mixr1_v2_dev/Controller'
+ * '<S3>'   : 'mixr1_v2_dev/TOF Read'
+ * '<S4>'   : 'mixr1_v2_dev/Actuators/MATLAB Function'
+ * '<S5>'   : 'mixr1_v2_dev/Controller/Controller'
+ * '<S6>'   : 'mixr1_v2_dev/Controller/Pump Guard'
+ * '<S7>'   : 'mixr1_v2_dev/Controller/Valve Guard'
+ * '<S8>'   : 'mixr1_v2_dev/Controller/Controller/MATLAB Function'
+ * '<S9>'   : 'mixr1_v2_dev/Controller/Pump Guard/pump_guard'
+ * '<S10>'  : 'mixr1_v2_dev/Controller/Valve Guard/valve_guard'
+ * '<S11>'  : 'mixr1_v2_dev/TOF Read/level_calc'
+ * '<S12>'  : 'mixr1_v2_dev/TOF Read/tof_read'
  */
 #endif                                 /* mixr1_v2_dev_h_ */

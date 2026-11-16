@@ -7,9 +7,9 @@
  *
  * Code generation for model "mixr1_v2_dev".
  *
- * Model version              : 1.35
+ * Model version              : 1.49
  * Simulink Coder version : 26.1 (R2026a) 20-Nov-2025
- * C source code generated on : Sat Nov 14 23:01:16 2026
+ * C source code generated on : Tue Nov 17 03:22:17 2026
  *
  * Target selection: ert.tlc
  * Embedded hardware selection: ARM Compatible->ARM Cortex-A (64-bit)
@@ -21,110 +21,45 @@
 
 /* Block parameters (default storage) */
 P_mixr1_v2_dev_T mixr1_v2_dev_P = {
+  /* Expression: 6
+   * Referenced by: '<S5>/valveV'
+   */
+  6.0,
+
   /* Expression: mixr1_bench.tof_offset_mm
-   * Referenced by: '<S2>/mixr1_bench.tof_offset_mm'
+   * Referenced by: '<S3>/mixr1_bench.tof_offset_mm'
    */
   -26.0,
 
   /* Expression: mixr1_bench.tof_budget_ms
-   * Referenced by: '<S2>/mixr1_bench.tof_budget_ms'
+   * Referenced by: '<S3>/mixr1_bench.tof_budget_ms'
    */
   200.0,
 
   /* Expression: mixr1_bench.tof_gain
-   * Referenced by: '<S2>/gain'
+   * Referenced by: '<S3>/gain'
    */
   1.00901,
 
   /* Expression: mixr1_bench.tof_intercept
-   * Referenced by: '<S2>/intercept'
+   * Referenced by: '<S3>/intercept'
    */
   14.477,
 
   /* Expression: mixr1_bench.zero_mm
-   * Referenced by: '<S2>/zero'
+   * Referenced by: '<S3>/zero'
    */
   389.0,
 
   /* Expression: mixr1_bench.thickness_mm
-   * Referenced by: '<S2>/thickness'
+   * Referenced by: '<S3>/thickness'
    */
   1.0,
 
   /* Expression: mixr1_bench.lgain
-   * Referenced by: '<S2>/lgain'
+   * Referenced by: '<S3>/lgain'
    */
   1.0,
-
-  /* Computed Parameter: level_displaysmootheddisplayonl
-   * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
-   */
-  -1.0,
-
-  /* Computed Parameter: level_displaysmootheddisplayo_c
-   * Referenced by: '<Root>/level_display (smoothed, display only — not used for control).'
-   */
-  1.0,
-
-  /* Expression: 12
-   * Referenced by: '<Root>/pumpV'
-   */
-  12.0,
-
-  /* Expression: 6
-   * Referenced by: '<Root>/valveV'
-   */
-  6.0,
-
-  /* Expression: mixr1_bench.min_V
-   * Referenced by: '<S1>/mixr1_bench.min_V'
-   */
-  1.0,
-
-  /* Expression: mixr1_bench.max_V
-   * Referenced by: '<S1>/mixr1_bench.max_V'
-   */
-  12.0,
-
-  /* Expression: mixr1_bench.min_band_mm
-   * Referenced by: '<S1>/mixr1_bench.min_band_mm'
-   */
-  2.0,
-
-  /* Expression: mixr1_bench.valve_floor_mm
-   * Referenced by: '<S1>/mixr1_bench.valve_floor_mm'
-   */
-  2.0,
-
-  /* Expression: mixr1_bench.max_level_mm
-   * Referenced by: '<S1>/mixr1_bench.max_level_mm'
-   */
-  300.0,
-
-  /* Expression: mixr1_bench.ceiling_margin_mm
-   * Referenced by: '<S1>/mixr1_bench.ceiling_margin_mm'
-   */
-  40.0,
-
-  /* Expression: mixr1_bench.min_V
-   * Referenced by: '<S4>/mixr1_bench.min_V'
-   */
-  1.0,
-
-  /* Expression: mixr1_bench.max_V
-   * Referenced by: '<S4>/mixr1_bench.max_V'
-   */
-  12.0,
-
-  /* Expression: mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
-   * Referenced by: '<S4>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
-   */
-  260.0,
-
-  /* Expression: mixr1_bench.max_run_s
-   * Referenced by: '<S4>/mixr1_bench.max_run_s'
-   */
-  1800.0,
 
   /* Expression: mixr1_bench.min_V
    * Referenced by: '<S5>/mixr1_bench.min_V'
@@ -136,23 +71,83 @@ P_mixr1_v2_dev_T mixr1_v2_dev_P = {
    */
   12.0,
 
+  /* Expression: mixr1_bench.min_band_mm
+   * Referenced by: '<S5>/mixr1_bench.min_band_mm'
+   */
+  2.0,
+
   /* Expression: mixr1_bench.valve_floor_mm
    * Referenced by: '<S5>/mixr1_bench.valve_floor_mm'
    */
   2.0,
 
+  /* Expression: mixr1_bench.max_level_mm
+   * Referenced by: '<S5>/mixr1_bench.max_level_mm'
+   */
+  300.0,
+
+  /* Expression: mixr1_bench.ceiling_margin_mm
+   * Referenced by: '<S5>/mixr1_bench.ceiling_margin_mm'
+   */
+  40.0,
+
+  /* Expression: mixr1_bench.min_V
+   * Referenced by: '<S6>/mixr1_bench.min_V'
+   */
+  1.0,
+
+  /* Expression: mixr1_bench.max_V
+   * Referenced by: '<S6>/mixr1_bench.max_V'
+   */
+  12.0,
+
+  /* Expression: mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm
+   * Referenced by: '<S6>/mixr1_bench.max_level_mm - mixr1_bench.ceiling_margin_mm'
+   */
+  260.0,
+
   /* Expression: mixr1_bench.max_run_s
-   * Referenced by: '<S5>/mixr1_bench.max_run_s'
+   * Referenced by: '<S6>/mixr1_bench.max_run_s'
+   */
+  1800.0,
+
+  /* Expression: mixr1_bench.min_V
+   * Referenced by: '<S7>/mixr1_bench.min_V'
+   */
+  1.0,
+
+  /* Expression: mixr1_bench.max_V
+   * Referenced by: '<S7>/mixr1_bench.max_V'
+   */
+  12.0,
+
+  /* Expression: mixr1_bench.valve_floor_mm
+   * Referenced by: '<S7>/mixr1_bench.valve_floor_mm'
+   */
+  2.0,
+
+  /* Expression: mixr1_bench.max_run_s
+   * Referenced by: '<S7>/mixr1_bench.max_run_s'
    */
   1800.0,
 
   /* Expression: mixr1_bench.pump_on_counts
-   * Referenced by: '<Root>/mixr1_bench.pump_on_counts'
+   * Referenced by: '<S1>/mixr1_bench.pump_on_counts'
    */
   167.0,
 
   /* Expression: mixr1_bench.valve_on_counts
-   * Referenced by: '<Root>/mixr1_bench.valve_on_counts'
+   * Referenced by: '<S1>/mixr1_bench.valve_on_counts'
    */
-  192.0
+  192.0,
+
+  /* Computed Parameter: level_displaysmootheddisplayonl
+   * Referenced by: '<S3>/level_display (smoothed, display only — not used for control).'
+   */
+  -1.0,
+
+  /* Computed Parameter: level_displaysmootheddisplayo_c
+   * Referenced by: '<S3>/level_display (smoothed, display only — not used for control).'
+   */
+  1.0
 };
