@@ -141,7 +141,12 @@ LINK_TIMEOUT_S = 2.0                  # no telemetry from the daemon for this lo
 POWER_LIMIT_W = 90                    # safety power cap enforced by the daemon on the Pi (config.hpp POWER_LIMIT_W); shown here only
 TARGET_SEND_INTERVAL_MS = 100         # while the slider is dragged, at most one command per interval
 TORQUE_AXIS_MIN_MAX_NM = 0.3          # the torque plot shows at least 0 .. 0.3 N.m
-OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))     # every exported file lands next to this script
+# Every exported file lands next to this script, or next to the .exe when the dashboard is built with PyInstaller
+# (inside a --onefile .exe, __file__ points to a temporary folder that is deleted when the program closes).
+if getattr(sys, "frozen", False):
+    OUTPUT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class C:
